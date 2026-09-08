@@ -4,6 +4,7 @@ import {
   renderApprove,
   renderAlways,
   renderDeny,
+  renderChoice,
   renderNext,
   renderSession,
 } from './lib/render.js';
@@ -14,6 +15,8 @@ const ACTION_ALWAYS = `${PLUGIN_UUID}.always`;
 const ACTION_DENY = `${PLUGIN_UUID}.deny`;
 const ACTION_NEXT = `${PLUGIN_UUID}.next`;
 const ACTION_SESSION = `${PLUGIN_UUID}.session`;
+// One action per answer slot; the trailing digit is the option it picks.
+const CHOICE_ACTIONS = [1, 2, 3, 4].map((n) => `${PLUGIN_UUID}.choice${n}`);
 
 const DEFAULTS = {
   port: 9247,
@@ -21,9 +24,14 @@ const DEFAULTS = {
   onTimeout: 'ask',
   cwdFilter: '',
   token: '',
+  // Arrows, not digits: the host presses physical keys, so "1" lands as & on
+  // AZERTY and as something else again on QWERTZ. Down/Enter are layout-proof.
+  answerMode: 'arrows',
 };
 
 const TICK_MS = 500; // drives both the countdown and the flash
+const KEYSTROKE_LEAD_MS = 220; // settle time before the first synthetic key
+const KEYSTROKE_GAP_MS = 180; // gap between them, so the host drops none
 
 const $UD = new UlanziApi();
 const server = new HookServer();
@@ -119,6 +127,15 @@ function paint(context, uuid, view, slots, ordered, pendingBySession) {
   else if (uuid === ACTION_ALWAYS) data = renderAlways(view);
   else if (uuid === ACTION_DENY) data = renderDeny(view);
   else if (uuid === ACTION_NEXT) data = renderNext(view);
+  else if (CHOICE_ACTIONS.includes(uuid)) {
+    const index = CHOICE_ACTIONS.indexOf(uuid);
+    const question = server.question;
+    data = renderChoice({
+      index,
+      choice: question ? question.options[index] : null,
+      header: question ? question.header : '',
+    });
+  }
   else if (uuid === ACTION_SESSION) {
     const slot = slots.get(context) || 0;
     const session = sessionFor(context, slot, ordered);
@@ -172,6 +189,39 @@ function repaint() {
   }
 }
 
+// Claude's question picker lives in the terminal, so the only honest way to
+// answer it is to press the keys a human would. Two dialects, because which one
+// the picker accepts is not documented: a bare option number, or arrow-downs
+// followed by Enter.
+function answerWithKeystrokes(index) {
+  if (config.answerMode === 'number') {
+    $UD.hotkey(String(index + 1));
+    return;
+  }
+  // Arrows: the picker starts on the first option, so step down to ours.
+  //
+  // Each hotkey is a websocket round trip that the host turns into a synthetic
+  // key press, and pressing them close together loses some -- measured on an
+  // AZERTY D200, 60ms gaps dropped one or both steps at random. These delays
+  // are deliberately generous: a quarter-second to answer is imperceptible,
+  // whereas landing on the wrong option is not.
+  // The first synthetic key is consumed bringing the window forward and never
+  // reaches the picker -- measured as a reliable one-row shortfall. So the
+  // first key sent is a lone Shift, which moves nothing if it does arrive.
+  let step = 0;
+  const walk = () => {
+    if (step < index) {
+      $UD.hotkey('Down');
+      step++;
+      setTimeout(walk, KEYSTROKE_GAP_MS);
+      return;
+    }
+    setTimeout(() => $UD.hotkey('Enter'), KEYSTROKE_GAP_MS);
+  };
+  $UD.hotkey('Shift');
+  setTimeout(walk, KEYSTROKE_LEAD_MS);
+}
+
 function applySettings(settings) {
   if (!settings || typeof settings !== 'object') return;
   const next = { ...config };
@@ -182,6 +232,9 @@ function applySettings(settings) {
   if (settings.onTimeout === 'ask' || settings.onTimeout === 'deny') next.onTimeout = settings.onTimeout;
   if (typeof settings.cwdFilter === 'string') next.cwdFilter = settings.cwdFilter;
   if (typeof settings.token === 'string') next.token = settings.token;
+  if (settings.answerMode === 'number' || settings.answerMode === 'arrows') {
+    next.answerMode = settings.answerMode;
+  }
 
   const portChanged = next.port !== config.port;
   config = next;
@@ -243,6 +296,28 @@ $UD.onRun((jsn) => {
 
   if (uuid === ACTION_NEXT) {
     server.next();
+    return;
+  }
+
+  if (CHOICE_ACTIONS.includes(uuid)) {
+    const index = CHOICE_ACTIONS.indexOf(uuid);
+    const question = server.question;
+    const option = question && question.options[index];
+    if (!option) {
+      $UD.showAlert(context);
+      $UD.toast('No question is waiting');
+      return;
+    }
+    const answered = server.answer(index);
+    if (!answered) {
+      // A question with no MCP call behind it came from Claude Code's own
+      // AskUserQuestion, which the deck cannot answer -- fall back to typing.
+      answerWithKeystrokes(index);
+      $UD.toast(`Answering: ${option.label}`);
+      return;
+    }
+    log(`answered "${answered.label}"`);
+    $UD.toast(`Answered: ${answered.label}`);
     return;
   }
 

@@ -135,6 +135,44 @@ export function renderDeny({ pending, tool, count }) {
   return toDataUrl(doc(body, BG));
 }
 
+// One key per answer to a pending AskUserQuestion. The label is the whole
+// point, so it wraps onto three lines rather than being clipped to nothing.
+export function renderChoice({ index, choice, header }) {
+  const number = index + 1;
+  if (!choice) {
+    const body =
+      text(String(number), SIZE / 2, 110, 64, { fill: '#2f2f37', weight: '800' }) +
+      text('no question', SIZE / 2, 158, 16, { fill: '#2f2f37' });
+    return toDataUrl(doc(body, BG_COLD));
+  }
+
+  const words = String(choice.label || '').split(/\s+/).filter(Boolean);
+  const lines = [];
+  let line = '';
+  for (const word of words) {
+    const candidate = line ? `${line} ${word}` : word;
+    if (candidate.length > 14 && line) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = candidate;
+    }
+    if (lines.length === 3) break;
+  }
+  if (line && lines.length < 3) lines.push(line);
+
+  const size = lines.length >= 3 ? 20 : lines.length === 2 ? 23 : 26;
+  const top = lines.length >= 3 ? 96 : lines.length === 2 ? 106 : 118;
+  const body =
+    `<circle cx="30" cy="30" r="19" fill="${PURPLE}"/>` +
+    text(String(number), 30, 38, 24, { fill: '#1f1f23', weight: '800' }) +
+    text(clip(header || '', 16), SIZE / 2 + 12, 36, 16, { fill: MUTED }) +
+    lines
+      .map((l, i) => text(l, SIZE / 2, top + i * (size + 6), size, { fill: TEXT, weight: '700' }))
+      .join('');
+  return toDataUrl(doc(body, BG));
+}
+
 export function renderNext({ count, position }) {
   if (!count) {
     const body = `<path d="M78 62l40 38-40 38" fill="none" stroke="${GREY}" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>`;

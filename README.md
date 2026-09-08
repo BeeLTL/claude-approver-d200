@@ -25,6 +25,7 @@ Claude Code ◀──{"decision":"allow"}──┘
 | **Deny** | Red while a request waits; press to reject. |
 | **Next Request** | Cycles when several sessions are queued (`2/3`). |
 | **Claude Status** | One live key per Claude Code session — see below. |
+| **Answer 1–4** | One key per option of a question asked through the `ask_on_deck` MCP tool. |
 
 Keys sit dim and grey when nothing is pending, so the deck doubles as an at-a-glance
 "is Claude waiting on me" light. If the plugin is not running, Claude Code never gets an answer
@@ -106,6 +107,46 @@ curl http://127.0.0.1:9247/hook
 
 `{"ok":true,"pending":0}` means the plugin is listening.
 
+## Answering questions
+
+Approve and Deny cover yes/no, because that is what the permission hook is: a decision channel.
+A multiple-choice question is a different shape, and the hook protocol cannot carry one -- its
+reply has fields for allow, deny and a reason, but none whose value becomes a tool's *result*.
+Declining Claude Code's built-in `AskUserQuestion` does not answer it either; it arrives as
+"user dismissed".
+
+So questions travel over MCP instead. `mcp/ask-deck.mjs` is a small stdio MCP server exposing one
+tool, `ask_on_deck`. An MCP tool call blocks until the server returns, so the plugin holds it open,
+puts each option on an Answer key, and returns the label you press as the tool result. No window
+focus, no synthetic keystrokes.
+
+Register it once:
+
+```bash
+claude mcp add --scope user --transport stdio ask-deck -- node <path to>/mcp/ask-deck.mjs
+```
+
+Then restart Claude Code. Without the `claude` CLI on PATH, add the same thing by hand to the
+`mcpServers` object in `~/.claude.json`:
+
+```json
+{
+  "mcpServers": {
+    "ask-deck": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["C:/path/to/claude-approver-d200/mcp/ask-deck.mjs"]
+    }
+  }
+}
+```
+
+If the deck plugin is not running, the tool says so and Claude asks in the conversation instead --
+it degrades rather than breaking. `ASK_DECK_PORT` overrides the port if you changed it.
+
+Claude Code's own `AskUserQuestion` still passes straight through to the terminal, so Approve and
+Deny never light up for a question they cannot answer.
+
 ## Settings
 
 Configured from any key's property inspector; the last key you configure wins, since the
@@ -140,6 +181,8 @@ com.ulanzi.claudeapprover.ulanziPlugin/
   plugin/plugin-common-node/ vendored Ulanzi Node SDK
   property-inspector/        settings UI
   libs/                      vendored Ulanzi HTML SDK
+mcp/ask-deck.mjs             stdio MCP server: the ask_on_deck tool
+hooks.example.json           the hook events to merge into settings.json
 ```
 
 Built against the [official Ulanzi SDK](https://github.com/UlanziTechnology/UlanziDeckPlugin-SDK)
