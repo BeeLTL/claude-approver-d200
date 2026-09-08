@@ -21,8 +21,7 @@ export const State = Object.freeze({
   IDLE: 'idle',
 });
 
-function contextWindowFor(model, used = 0, override = 0) {
-  if (override > 0) return override;
+function contextWindowFor(model, used = 0) {
   const id = String(model || '');
   if (id.includes('[1m]')) return 1000000;
   const tier = WINDOW_TIERS.find((size) => used <= size);
@@ -43,7 +42,7 @@ function readTail(file) {
   }
 }
 
-export function readContextUsage(transcriptPath, override = 0) {
+export function readContextUsage(transcriptPath) {
   if (!transcriptPath) return null;
   let text;
   try {
@@ -68,7 +67,7 @@ export function readContextUsage(transcriptPath, override = 0) {
       (usage.cache_creation_input_tokens || 0) +
       (usage.cache_read_input_tokens || 0);
     if (!used) continue;
-    const window = contextWindowFor(entry.message.model, used, override);
+    const window = contextWindowFor(entry.message.model, used);
     return { used, window, ratio: Math.min(1, used / window), model: entry.message.model };
   }
   return null;
@@ -82,7 +81,6 @@ function projectName(cwd) {
 export class SessionRegistry {
   constructor() {
     this.sessions = new Map(); // session_id -> record
-    this.contextWindow = 0; // 0 = infer it; set from the key's settings to pin it
   }
 
   touch(hook) {
@@ -115,7 +113,7 @@ export class SessionRegistry {
     const now = Date.now();
     if (now - session.contextCheckedAt < CONTEXT_TTL_MS) return;
     session.contextCheckedAt = now;
-    const usage = readContextUsage(session.transcriptPath, this.contextWindow || 0);
+    const usage = readContextUsage(session.transcriptPath);
     if (usage) session.context = usage;
   }
 

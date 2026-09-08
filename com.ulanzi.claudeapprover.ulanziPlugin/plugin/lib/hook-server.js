@@ -24,9 +24,6 @@ function parseChoices(hook) {
   return {
     header: q.header || 'Question',
     question: q.question || '',
-    // Only the first question is offered: the deck has no way to walk a
-    // multi-question form, and those are rare.
-    more: questions.length > 1,
     options: options.map((o) => ({ label: o.label, description: o.description })),
   };
 }
@@ -287,7 +284,7 @@ export class HookServer extends EventEmitter {
       this._closeQuestion({ cancelled: true, reason: 'superseded by a newer question' });
     }
 
-    this.question = { items, index: 0, answers: [], res, at: Date.now() };
+    this.question = { items, index: 0, answers: [], res };
     this.emit('log', `${items.length} question(s) on the keys: ${items[0].header}`);
     this.emit('change');
   }
@@ -415,7 +412,6 @@ export class HookServer extends EventEmitter {
         answers: [],
         res: null, // nothing to answer: Claude Code's own picker owns this one
         session: hook.session_id || '',
-        at: Date.now(),
       };
       this.emit('log', `question: ${choices.header}`);
       this.emit('change');
@@ -434,12 +430,10 @@ export class HookServer extends EventEmitter {
     const entry = {
       id: randomUUID(),
       res,
-      event: hook.hook_event_name,
       session: hook.session_id || '',
       cwd: hook.cwd || '',
       tool: hook.tool_name || 'Tool',
       input: hook.tool_input || {},
-      createdAt: Date.now(),
       expiresAt: Date.now() + this.options.holdSeconds * 1000,
     };
 

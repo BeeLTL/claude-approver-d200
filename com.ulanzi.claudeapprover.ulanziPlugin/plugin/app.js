@@ -26,7 +26,6 @@ const DEFAULTS = {
   token: '',
   // Arrows, not digits: the host presses physical keys, so "1" lands as & on
   // AZERTY and as something else again on QWERTZ. Down/Enter are layout-proof.
-  answerMode: 'arrows',
 };
 
 const TICK_MS = 500; // drives both the countdown and the flash
@@ -68,11 +67,10 @@ function detailOf(entry) {
 function approvalView() {
   const entry = server.current;
   const count = server.queue.length;
-  if (!entry) return { pending: false, count, listening: server.listening };
+  if (!entry) return { pending: false, count };
   return {
     pending: true,
     count,
-    listening: server.listening,
     tool: entry.tool,
     rule: server.pendingRule(),
     detail: detailOf(entry),
@@ -178,11 +176,9 @@ function repaint() {
 // the picker accepts is not documented: a bare option number, or arrow-downs
 // followed by Enter.
 function answerWithKeystrokes(index) {
-  if (config.answerMode === 'number') {
-    $UD.hotkey(String(index + 1));
-    return;
-  }
-  // Arrows: the picker starts on the first option, so step down to ours.
+  // Always arrows. Sending the option number instead means the host presses the
+  // physical key where a digit sits on QWERTY, which on an AZERTY keyboard types
+  // & or e-acute into the prompt rather than choosing anything.
   //
   // Each hotkey is a websocket round trip that the host turns into a synthetic
   // key press, and pressing them close together loses some -- measured on an
@@ -216,9 +212,6 @@ function applySettings(settings) {
   if (settings.onTimeout === 'ask' || settings.onTimeout === 'deny') next.onTimeout = settings.onTimeout;
   if (typeof settings.cwdFilter === 'string') next.cwdFilter = settings.cwdFilter;
   if (typeof settings.token === 'string') next.token = settings.token;
-  if (settings.answerMode === 'number' || settings.answerMode === 'arrows') {
-    next.answerMode = settings.answerMode;
-  }
 
   const portChanged = next.port !== config.port;
   config = next;

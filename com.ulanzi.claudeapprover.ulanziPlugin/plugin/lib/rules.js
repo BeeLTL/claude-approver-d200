@@ -22,8 +22,6 @@ function words(command) {
 // The rule a press of "Always" would create for this request.
 export function ruleFor(entry) {
   if (!entry) return null;
-  // "Always answer questions this way" is meaningless -- each question differs.
-  if (entry.tool === 'AskUserQuestion') return null;
   if (entry.tool === 'Bash') {
     const parts = words(entry.input && entry.input.command);
     if (!parts.length) return null;
