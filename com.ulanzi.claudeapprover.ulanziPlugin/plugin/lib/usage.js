@@ -103,9 +103,13 @@ function readHeaders(headers) {
     const n = Number(value);
     return Number.isFinite(n) ? n : null;
   };
+  // The header is a fraction: 0.82 means 82%. Measured against Claude Code's
+  // own usage panel showing 82% while the header read 0.82. A value above 1 is
+  // treated as a percentage instead, so either convention lands correctly.
   const pct = (value) => {
     const n = number(value);
-    return n === null ? null : n / 100;
+    if (n === null) return null;
+    return n > 1 ? n / 100 : n;
   };
   const epoch = (value) => {
     const n = number(value);
