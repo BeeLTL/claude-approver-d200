@@ -137,6 +137,37 @@ export function renderDeny({ pending, tool, count }) {
 
 // One key per answer to a pending AskUserQuestion. The label is the whole
 // point, so it wraps onto three lines rather than being clipped to nothing.
+// Plan usage: the 5-hour rolling window or the 7-day one, as a percentage with
+// the same colour scale as the context bar and a countdown to the reset.
+export function renderUsage({ metric, usage, error, expired }) {
+  const label = metric === '7d' ? 'Weekly' : '5 hours';
+
+  if (error) {
+    const message =
+      error === 'NO_TOKEN' ? 'no login' : error === 'NETWORK' ? 'offline' : expired ? 'expired' : 'reauth';
+    const body =
+      text(label, SIZE / 2, 76, 22, { fill: MUTED }) +
+      text(message, SIZE / 2, 122, 30, { fill: RED, weight: '800' }) +
+      text('sign in again', SIZE / 2, 158, 16, { fill: GREY });
+    return toDataUrl(doc(body, BG_COLD));
+  }
+
+  if (!usage) {
+    const body = text(label, SIZE / 2, 100, 24, { fill: MUTED }) +
+      text('...', SIZE / 2, 140, 26, { fill: GREY });
+    return toDataUrl(doc(body, BG_COLD));
+  }
+
+  const ratio = usage.ratio;
+  const color = contextColor(ratio);
+  const body =
+    text(label, SIZE / 2, 48, 22, { fill: MUTED, weight: '700' }) +
+    text(`${Math.round(ratio * 100)}%`, SIZE / 2, 116, 56, { fill: color, weight: '800' }) +
+    bar(18, 134, SIZE - 36, 14, ratio, color) +
+    text(usage.reset ? `resets ${usage.reset}` : '', SIZE / 2, 176, 18, { fill: MUTED });
+  return toDataUrl(doc(body, BG));
+}
+
 export function renderChoice({ index, choice, header }) {
   const number = index + 1;
   if (!choice) {

@@ -3,7 +3,7 @@
   "Name": "Claude Code Approver",
   "Description": "Approve, always-allow or deny Claude Code permission requests from your deck, and watch every session's state and context window on its own key.",
   "Author": "BeeLTL",
-  "Version": "1.6.0",
+  "Version": "1.7.0",
   "Icon": "assets/icons/icon.svg",
   "Category": "Claude Code",
   "CategoryIcon": "assets/icons/icon.svg",
@@ -161,6 +161,23 @@
         }
       ],
       "UUID": "com.ulanzi.ulanzistudio.claudeapprover.choice4",
+      "SupportedInMultiActions": false,
+      "Controllers": [
+        "Keypad"
+      ]
+    },
+    {
+      "Name": "Plan Usage",
+      "Tooltip": "How much of your 5-hour or weekly Claude limit is used.",
+      "Icon": "assets/icons/usage.svg",
+      "PropertyInspectorPath": "property-inspector/usage.html",
+      "state": 0,
+      "States": [
+        {
+          "Image": "assets/icons/usage.svg"
+        }
+      ],
+      "UUID": "com.ulanzi.ulanzistudio.claudeapprover.usage",
       "SupportedInMultiActions": false,
       "Controllers": [
         "Keypad"

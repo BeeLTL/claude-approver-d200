@@ -26,6 +26,7 @@ Claude Code ◀──{"decision":"allow"}──┘
 | **Next Request** | Cycles when several sessions are queued (`2/3`). |
 | **Claude Status** | One live key per Claude Code session — see below. |
 | **Answer 1–4** | One key per option of a question asked through the `ask_on_deck` MCP tool. |
+| **Plan Usage** | How much of your 5-hour or weekly limit is gone, with a countdown to the reset. |
 
 Keys sit dim and grey when nothing is pending, so the deck doubles as an at-a-glance
 "is Claude waiting on me" light. If the plugin is not running, Claude Code never gets an answer
@@ -156,6 +157,22 @@ calling it. Without that you would be staring at a spinner wondering what your d
 
 Claude Code's own `AskUserQuestion` still passes straight through to the terminal, so Approve and
 Deny never light up for a question they cannot answer.
+
+## Plan usage
+
+Usage is not written to disk and there is no read-only endpoint for it: it arrives as
+`anthropic-ratelimit-unified-*` headers on an ordinary API response. So the key sends the
+cheapest request that exists -- one token to Haiku, body discarded -- and reads the headers. It
+polls every five minutes, shared across every usage key; press one to refresh immediately.
+
+It reads the login Claude Code already stores (`~/.claude/.credentials.json`, or the login
+keychain on macOS) and never writes to it. When that login has expired the key says `expired`
+rather than a vague auth error, because the fix is to sign in again. The plugin deliberately does
+not refresh the token itself -- doing that means driving someone's login, and getting it wrong
+could invalidate a working session.
+
+The mechanism follows [Narlei Moreira's Claude Code Usage plugin](https://github.com/narlei),
+MIT licensed; the implementation here is its own.
 
 ## Settings
 

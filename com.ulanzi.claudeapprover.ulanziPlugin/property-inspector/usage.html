@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Plan Usage</title>
+  <link rel="stylesheet" href="../libs/css/uspi.css">
+  <script src="../libs/js/constants.js"></script>
+  <script src="../libs/js/eventEmitter.js"></script>
+  <script src="../libs/js/timers.js"></script>
+  <script src="../libs/js/utils.js"></script>
+  <script src="../libs/js/ulanziApi.js"></script>
+</head>
+<body>
+  <div class="uspi-wrapper">
+    <form id="property-inspector">
+      <div class="uspi-item">
+        <div class="uspi-item-label" data-localize>Show</div>
+        <select class="uspi-item-value" name="metric">
+          <option value="5h" data-localize>The 5-hour rolling limit</option>
+          <option value="7d" data-localize>The weekly limit</option>
+        </select>
+      </div>
+
+      <div class="uspi-item">
+        <div class="uspi-item-label" data-localize>Claude config folder</div>
+        <input class="uspi-item-value" type="text" name="configDir"
+               placeholder="Leave empty for ~/.claude">
+      </div>
+    </form>
+    <p style="color:#8b8b95;font-size:12px;padding:8px 12px;line-height:1.5">
+      Usage arrives as rate-limit headers on an API response, so the key refreshes every five
+      minutes rather than continuously. Press it to refresh now. It reads the login Claude Code
+      already stores; it never asks for an API key and never writes to your credentials.
+    </p>
+  </div>
+
+  <script>
+    $UD.connect();
+    $UD.onAdd((jsn) => {
+      if (jsn && jsn.param) Utils.setFormValue(jsn.param, '#property-inspector');
+    });
+    document.getElementById('property-inspector').addEventListener('change', () => {
+      $UD.sendParamFromPlugin(Utils.getFormValue('#property-inspector'));
+    });
+  </script>
+</body>
+</html>

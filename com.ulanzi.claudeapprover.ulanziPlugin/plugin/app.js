@@ -7,7 +7,9 @@ import {
   renderChoice,
   renderNext,
   renderSession,
+  renderUsage,
 } from './lib/render.js';
+import { fetchUsage, formatReset, UsageError } from './lib/usage.js';
 
 const PLUGIN_UUID = 'com.ulanzi.ulanzistudio.claudeapprover';
 const ACTION_APPROVE = `${PLUGIN_UUID}.approve`;
@@ -17,6 +19,7 @@ const ACTION_NEXT = `${PLUGIN_UUID}.next`;
 const ACTION_SESSION = `${PLUGIN_UUID}.session`;
 // One action per answer slot; the trailing digit is the option it picks.
 const CHOICE_ACTIONS = [1, 2, 3, 4].map((n) => `${PLUGIN_UUID}.choice${n}`);
+const ACTION_USAGE = `${PLUGIN_UUID}.usage`;
 
 const DEFAULTS = {
   port: 9247,
@@ -29,6 +32,9 @@ const DEFAULTS = {
 };
 
 const TICK_MS = 500; // drives both the countdown and the flash
+// Usage costs an API round trip, so it is polled slowly and shared by every
+// usage key rather than fetched per key.
+const USAGE_POLL_MS = 5 * 60 * 1000;
 const KEYSTROKE_LEAD_MS = 220; // settle time before the first synthetic key
 const KEYSTROKE_GAP_MS = 180; // gap between them, so the host drops none
 
@@ -39,6 +45,8 @@ const PAINTED = new Map(); // context -> last data url, so we only send changes
 let config = { ...DEFAULTS };
 let ticker = null;
 let flashOn = true;
+let usage = null; // last successful reading, or the error that replaced it
+let usageTimer = null;
 
 function log(...args) {
   console.log('[claude-approver]', ...args);
@@ -106,6 +114,10 @@ function paint(context, uuid, view, slots, ordered, pendingBySession) {
   else if (uuid === ACTION_ALWAYS) data = renderAlways(view);
   else if (uuid === ACTION_DENY) data = renderDeny(view);
   else if (uuid === ACTION_NEXT) data = renderNext(view);
+  else if (uuid === ACTION_USAGE) {
+    const metric = (KEYS.get(context)?.settings?.metric === '7d') ? '7d' : '5h';
+    data = renderUsage(usageView(metric));
+  }
   else if (CHOICE_ACTIONS.includes(uuid)) {
     const index = CHOICE_ACTIONS.indexOf(uuid);
     const current = server.currentQuestion;
@@ -202,6 +214,30 @@ function answerWithKeystrokes(index) {
   setTimeout(walk, KEYSTROKE_LEAD_MS);
 }
 
+async function refreshUsage() {
+  const result = await fetchUsage({ configDir: config.configDir });
+  usage = result.ok
+    ? { ok: true, data: result.data }
+    : { ok: false, kind: result.kind, expired: result.expired };
+  if (!result.ok) log('usage:', result.kind, result.message);
+  repaint();
+}
+
+function startUsagePolling() {
+  if (usageTimer) return;
+  refreshUsage();
+  usageTimer = setInterval(refreshUsage, USAGE_POLL_MS);
+}
+
+function usageView(metric) {
+  if (!usage) return { metric };
+  if (!usage.ok) return { metric, error: usage.kind, expired: usage.expired };
+  const ratio = metric === '7d' ? usage.data.util7d : usage.data.util5h;
+  const reset = metric === '7d' ? usage.data.reset7d : usage.data.reset5h;
+  if (ratio === null || ratio === undefined) return { metric, error: UsageError.UNKNOWN };
+  return { metric, usage: { ratio, reset: formatReset(reset) } };
+}
+
 function applySettings(settings) {
   if (!settings || typeof settings !== 'object') return;
   const next = { ...config };
@@ -211,6 +247,7 @@ function applySettings(settings) {
   if (hold >= 5 && hold <= 3600) next.holdSeconds = hold;
   if (settings.onTimeout === 'ask' || settings.onTimeout === 'deny') next.onTimeout = settings.onTimeout;
   if (typeof settings.cwdFilter === 'string') next.cwdFilter = settings.cwdFilter;
+  if (typeof settings.configDir === 'string') next.configDir = settings.configDir;
   if (typeof settings.token === 'string') next.token = settings.token;
 
   const portChanged = next.port !== config.port;
@@ -238,6 +275,7 @@ $UD.onAdd((jsn) => {
   const context = jsn.context;
   if (!context) return;
   KEYS.set(context, { uuid: actionOf(context), settings: jsn.param || {} });
+  if (actionOf(context) === ACTION_USAGE) startUsagePolling();
   applySettings(jsn.param);
   repaint();
 });
@@ -268,6 +306,11 @@ $UD.onRun((jsn) => {
   const uuid = actionOf(context);
 
   if (uuid === ACTION_SESSION) return; // a status key, nothing to press
+
+  if (uuid === ACTION_USAGE) {
+    refreshUsage();
+    return;
+  }
 
   if (uuid === ACTION_NEXT) {
     server.next();
