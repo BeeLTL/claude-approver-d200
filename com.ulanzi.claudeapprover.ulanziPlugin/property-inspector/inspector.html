@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Claude Code Approver</title>
+  <link rel="stylesheet" href="../libs/css/uspi.css">
+  <script src="../libs/js/constants.js"></script>
+  <script src="../libs/js/eventEmitter.js"></script>
+  <script src="../libs/js/timers.js"></script>
+  <script src="../libs/js/utils.js"></script>
+  <script src="../libs/js/ulanziApi.js"></script>
+</head>
+<body>
+  <div class="uspi-wrapper">
+    <form id="property-inspector">
+      <div class="uspi-item">
+        <div class="uspi-item-label" data-localize>Listen port</div>
+        <input class="uspi-item-value" type="number" name="port" min="1024" max="65535" value="9247">
+      </div>
+
+      <div class="uspi-item">
+        <div class="uspi-item-label" data-localize>On timeout</div>
+        <select class="uspi-item-value" name="onTimeout">
+          <option value="ask" data-localize>Fall through to the terminal prompt</option>
+          <option value="deny" data-localize>Deny the request</option>
+        </select>
+      </div>
+
+      <div class="uspi-item">
+        <div class="uspi-item-label" data-localize>Hold seconds</div>
+        <input class="uspi-item-value" type="number" name="holdSeconds" min="5" max="3600" value="110">
+      </div>
+
+      <div class="uspi-item">
+        <div class="uspi-item-label" data-localize>Only this working directory</div>
+        <input class="uspi-item-value" type="text" name="cwdFilter" placeholder="Leave empty to answer every session">
+      </div>
+
+      <div class="uspi-item">
+        <div class="uspi-item-label" data-localize>Shared secret</div>
+        <input class="uspi-item-value" type="text" name="token" placeholder="optional X-Approver-Token">
+      </div>
+    </form>
+  </div>
+
+  <script>
+    // Settings are global to the plugin in practice — the main service applies
+    // whichever key was configured last — but they are stored per key so the
+    // form comes back populated whichever key you open.
+    // The host passes the real action uuid in the page query string.
+    $UD.connect();
+
+    $UD.onAdd((jsn) => {
+      if (jsn && jsn.param) Utils.setFormValue(jsn.param, '#property-inspector');
+    });
+
+    document.getElementById('property-inspector').addEventListener('change', () => {
+      $UD.sendParamFromPlugin(Utils.getFormValue('#property-inspector'));
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,6 @@
+node_modules/
+*.log
+
+# local only: not part of what the plugin ships
+scripts/
+test/

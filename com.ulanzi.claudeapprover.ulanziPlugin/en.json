@@ -1,0 +1,14 @@
+{
+  "Name": "Claude Code Approver",
+  "Description": "Approve or deny Claude Code permission requests from your deck.",
+  "Localization": {
+    "Listen port": "Listen port",
+    "On timeout": "On timeout",
+    "Fall through to the terminal prompt": "Fall through to the terminal prompt",
+    "Deny the request": "Deny the request",
+    "Only this working directory": "Only this working directory",
+    "Leave empty to answer every session": "Leave empty to answer every session",
+    "Shared secret": "Shared secret",
+    "Status": "Status"
+  }
+}

@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Claude Status</title>
+  <link rel="stylesheet" href="../libs/css/uspi.css">
+  <script src="../libs/js/constants.js"></script>
+  <script src="../libs/js/eventEmitter.js"></script>
+  <script src="../libs/js/timers.js"></script>
+  <script src="../libs/js/utils.js"></script>
+  <script src="../libs/js/ulanziApi.js"></script>
+</head>
+<body>
+  <div class="uspi-wrapper">
+    <form id="property-inspector">
+      <div class="uspi-item">
+        <div class="uspi-item-label" data-localize>Pin to project</div>
+        <input class="uspi-item-value" type="text" name="project"
+               placeholder="Leave empty to fill automatically">
+      </div>
+    </form>
+    <p style="color:#8b8b95;font-size:12px;padding:8px 12px;line-height:1.5">
+      Left empty, each Claude Status key claims the next active session in the order the keys
+      were added. Name a project folder to keep this key on that project.
+    </p>
+  </div>
+
+  <script>
+    // The host passes the real action uuid in the page query string.
+    $UD.connect();
+
+    $UD.onAdd((jsn) => {
+      if (jsn && jsn.param) Utils.setFormValue(jsn.param, '#property-inspector');
+    });
+
+    document.getElementById('property-inspector').addEventListener('change', () => {
+      $UD.sendParamFromPlugin(Utils.getFormValue('#property-inspector'));
+    });
+  </script>
+</body>
+</html>

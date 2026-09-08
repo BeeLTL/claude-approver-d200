@@ -1,0 +1,115 @@
+{
+  "UUID": "com.ulanzi.ulanzistudio.claudeapprover",
+  "Name": "Claude Code Approver",
+  "Description": "Approve, always-allow or deny Claude Code permission requests from your deck, and watch every session's state and context window on its own key.",
+  "Author": "BeeLTL",
+  "Version": "1.2.0",
+  "Icon": "assets/icons/icon.svg",
+  "Category": "Claude Code",
+  "CategoryIcon": "assets/icons/icon.svg",
+  "CodePath": "plugin/app.js",
+  "Type": "JavaScript",
+  "Inspect": "--inspect=127.0.0.1:9248",
+  "PrivateAPI": true,
+  "SupportedInMultiActions": false,
+  "Actions": [
+    {
+      "Name": "Approve",
+      "Tooltip": "Approve the pending Claude Code permission request.",
+      "Icon": "assets/icons/approve.svg",
+      "PropertyInspectorPath": "property-inspector/inspector.html",
+      "state": 0,
+      "States": [
+        {
+          "Image": "assets/icons/approve.svg"
+        }
+      ],
+      "UUID": "com.ulanzi.ulanzistudio.claudeapprover.approve",
+      "SupportedInMultiActions": false,
+      "Controllers": [
+        "Keypad"
+      ]
+    },
+    {
+      "Name": "Always Allow",
+      "Tooltip": "Approve, and stop asking for that kind of command for the rest of this session.",
+      "Icon": "assets/icons/always.svg",
+      "PropertyInspectorPath": "property-inspector/inspector.html",
+      "state": 0,
+      "States": [
+        {
+          "Image": "assets/icons/always.svg"
+        }
+      ],
+      "UUID": "com.ulanzi.ulanzistudio.claudeapprover.always",
+      "SupportedInMultiActions": false,
+      "Controllers": [
+        "Keypad"
+      ]
+    },
+    {
+      "Name": "Deny",
+      "Tooltip": "Deny the pending Claude Code permission request.",
+      "Icon": "assets/icons/deny.svg",
+      "PropertyInspectorPath": "property-inspector/inspector.html",
+      "state": 0,
+      "States": [
+        {
+          "Image": "assets/icons/deny.svg"
+        }
+      ],
+      "UUID": "com.ulanzi.ulanzistudio.claudeapprover.deny",
+      "SupportedInMultiActions": false,
+      "Controllers": [
+        "Keypad"
+      ]
+    },
+    {
+      "Name": "Next Request",
+      "Tooltip": "Cycle to the next queued request when several sessions are waiting.",
+      "Icon": "assets/icons/next.svg",
+      "PropertyInspectorPath": "property-inspector/inspector.html",
+      "state": 0,
+      "States": [
+        {
+          "Image": "assets/icons/next.svg"
+        }
+      ],
+      "UUID": "com.ulanzi.ulanzistudio.claudeapprover.next",
+      "SupportedInMultiActions": false,
+      "Controllers": [
+        "Keypad"
+      ]
+    },
+    {
+      "Name": "Claude Status",
+      "Tooltip": "A live key for one Claude Code session: project, state and context window.",
+      "Icon": "assets/icons/session.svg",
+      "PropertyInspectorPath": "property-inspector/session.html",
+      "state": 0,
+      "States": [
+        {
+          "Image": "assets/icons/session.svg"
+        }
+      ],
+      "UUID": "com.ulanzi.ulanzistudio.claudeapprover.session",
+      "SupportedInMultiActions": false,
+      "Controllers": [
+        "Keypad"
+      ]
+    }
+  ],
+  "OS": [
+    {
+      "Platform": "windows",
+      "MinimumVersion": "10"
+    },
+    {
+      "Platform": "mac",
+      "MinimumVersion": "10.15"
+    }
+  ],
+  "Software": {
+    "MinVersion": "3.0.11"
+  }
+}
