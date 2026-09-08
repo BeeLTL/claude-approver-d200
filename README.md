@@ -150,6 +150,10 @@ Then restart Claude Code. Without the `claude` CLI on PATH, add the same thing b
 If the deck plugin is not running, the tool says so and Claude asks in the conversation instead --
 it degrades rather than breaking. `ASK_DECK_PORT` overrides the port if you changed it.
 
+The question exists only on the keys -- the conversation shows a tool call and nothing else -- so
+the tool description tells Claude to write the question and its options out in its message before
+calling it. Without that you would be staring at a spinner wondering what your deck wants.
+
 Claude Code's own `AskUserQuestion` still passes straight through to the terminal, so Approve and
 Deny never light up for a question they cannot answer.
 

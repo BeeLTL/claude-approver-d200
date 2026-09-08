@@ -47,7 +47,10 @@ const TOOL = {
     'are walked through one at a time, so ask them together in one call. Prefer this over ' +
     'AskUserQuestion whenever the user is at their deck, because a deck press cannot answer ' +
     'AskUserQuestion. Returns the label of the option they chose. Blocks until they answer, ' +
-    'so only call it when a decision genuinely needs their input.',
+    'so only call it when a decision genuinely needs their input. IMPORTANT: the question and ' +
+    'its options appear only on the deck keys, never in the conversation -- so always write them ' +
+    'out in your message before calling this tool, or a user who is not looking at their deck ' +
+    'has no idea what is being asked.',
   inputSchema: {
     type: 'object',
     properties: {
