@@ -168,6 +168,72 @@ export function renderUsage({ metric, usage, error, expired }) {
   return toDataUrl(doc(body, BG));
 }
 
+// The D200's wide slot (3_2) is 464x196 rather than a square key, which is room
+// for the whole picture: which session, what it is doing, on what, and how full
+// its window is. Ulanzi Studio will not let you drag onto that slot, so this is
+// painted onto whatever the profile JSON has been pointed at it.
+const BOARD_W = 464;
+const BOARD_H = 196;
+
+function boardDoc(body) {
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${BOARD_W} ${BOARD_H}" width="${BOARD_W}" height="${BOARD_H}"><rect width="${BOARD_W}" height="${BOARD_H}" rx="18" fill="${BG}"/>${body}</svg>`;
+}
+
+export function renderBoard({ session, pending, question, flashOn }) {
+  if (!session) {
+    const body =
+      text('no session', BOARD_W / 2, 92, 30, { fill: GREY, weight: '700' }) +
+      text('waiting for Claude Code', BOARD_W / 2, 126, 18, { fill: '#33333a' });
+    return toDataUrl(boardDoc(body));
+  }
+
+  const style = STATE_STYLE[session.state] || STATE_STYLE.idle;
+  const lit = !style.flash || flashOn;
+  const accent = lit ? style.color : '#3a3a42';
+  const ratio = session.context ? session.context.ratio : null;
+  const ctx = session.context || {};
+
+  // A question or a pending request outranks the status line: it is the thing
+  // actually wanting a human.
+  const heading = question
+    ? question.header
+    : pending
+      ? pending.tool
+      : style.label;
+  const detail = question
+    ? question.question
+    : pending
+      ? pending.detail
+      : [ctx.model, ctx.effort, ctx.branch].filter(Boolean).join(' · ');
+
+  const name = session.project || session.id.slice(0, 8);
+  const chip =
+    `<circle cx="28" cy="30" r="7" fill="${accent}"/>` +
+    text('SESSION', 46, 36, 15, { fill: MUTED, weight: '800', anchor: 'start' }) +
+    text(heading.toUpperCase(), 118, 36, 15, { fill: accent, weight: '800', anchor: 'start' });
+
+  const pct = ratio == null ? '--' : `${Math.round(ratio * 100)}%`;
+  const body =
+    chip +
+    text(clip(name, 26), 24, 100, fitSize(clip(name, 26), 44, BOARD_W - 140), {
+      fill: TEXT,
+      weight: '800',
+      anchor: 'start',
+    }) +
+    text(clip(detail, 52), 24, 132, 17, { fill: MUTED, anchor: 'start' }) +
+    bar(24, 154, BOARD_W - 110, 14, ratio == null ? 0 : ratio, contextColor(ratio || 0)) +
+    text(pct, BOARD_W - 24, 166, 20, {
+      fill: contextColor(ratio || 0),
+      weight: '800',
+      anchor: 'end',
+    }) +
+    (pending && pending.secondsLeft != null
+      ? text(`${pending.secondsLeft}s`, BOARD_W - 24, 36, 18, { fill: AMBER, anchor: 'end' })
+      : '');
+
+  return toDataUrl(boardDoc(body));
+}
+
 export function renderChoice({ index, choice, header }) {
   const number = index + 1;
   if (!choice) {

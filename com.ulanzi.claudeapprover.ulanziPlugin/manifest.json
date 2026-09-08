@@ -3,7 +3,7 @@
   "Name": "Claude Code Approver",
   "Description": "Approve, always-allow or deny Claude Code permission requests from your deck, and watch every session's state and context window on its own key.",
   "Author": "BeeLTL",
-  "Version": "1.7.0",
+  "Version": "1.8.0",
   "Icon": "assets/icons/icon.svg",
   "Category": "Claude Code",
   "CategoryIcon": "assets/icons/icon.svg",
@@ -178,6 +178,23 @@
         }
       ],
       "UUID": "com.ulanzi.ulanzistudio.claudeapprover.usage",
+      "SupportedInMultiActions": false,
+      "Controllers": [
+        "Keypad"
+      ]
+    },
+    {
+      "Name": "Session Board",
+      "Tooltip": "The wide key: which session needs you, what it is doing, and how full its window is.",
+      "Icon": "assets/icons/session.svg",
+      "PropertyInspectorPath": "property-inspector/session.html",
+      "state": 0,
+      "States": [
+        {
+          "Image": "assets/icons/session.svg"
+        }
+      ],
+      "UUID": "com.ulanzi.ulanzistudio.claudeapprover.board",
       "SupportedInMultiActions": false,
       "Controllers": [
         "Keypad"

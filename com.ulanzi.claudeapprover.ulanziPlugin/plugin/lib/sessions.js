@@ -68,7 +68,15 @@ export function readContextUsage(transcriptPath) {
       (usage.cache_read_input_tokens || 0);
     if (!used) continue;
     const window = contextWindowFor(entry.message.model, used);
-    return { used, window, ratio: Math.min(1, used / window), model: entry.message.model };
+    return {
+      used,
+      window,
+      ratio: Math.min(1, used / window),
+      model: entry.message.model,
+      // Free of charge: the same line records where the work is happening.
+      branch: entry.gitBranch || '',
+      effort: entry.effort || '',
+    };
   }
   return null;
 }

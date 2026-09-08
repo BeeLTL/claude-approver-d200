@@ -8,6 +8,7 @@ import {
   renderNext,
   renderSession,
   renderUsage,
+  renderBoard,
 } from './lib/render.js';
 import { fetchUsage, formatReset, UsageError } from './lib/usage.js';
 
@@ -20,6 +21,11 @@ const ACTION_SESSION = `${PLUGIN_UUID}.session`;
 // One action per answer slot; the trailing digit is the option it picks.
 const CHOICE_ACTIONS = [1, 2, 3, 4].map((n) => `${PLUGIN_UUID}.choice${n}`);
 const ACTION_USAGE = `${PLUGIN_UUID}.usage`;
+const ACTION_BOARD = `${PLUGIN_UUID}.board`;
+
+// What the board shows when several sessions are live: whatever most wants a
+// human, then whatever is moving, then whatever finished.
+const STATE_PRIORITY = { approval: 0, input: 1, working: 2, done: 3, idle: 4 };
 
 const DEFAULTS = {
   port: 9247,
@@ -108,12 +114,32 @@ function sessionFor(context, slot, ordered) {
   return ordered[slot] || null;
 }
 
+// The one session worth a single wide key.
+function headlineSession(ordered) {
+  if (!ordered.length) return null;
+  return [...ordered].sort((a, b) => {
+    const byState = (STATE_PRIORITY[a.state] ?? 9) - (STATE_PRIORITY[b.state] ?? 9);
+    if (byState) return byState;
+    return (b.lastActivity || 0) - (a.lastActivity || 0);
+  })[0];
+}
+
 function paint(context, uuid, view, slots, ordered, pendingBySession) {
   let data;
   if (uuid === ACTION_APPROVE) data = renderApprove(view);
   else if (uuid === ACTION_ALWAYS) data = renderAlways(view);
   else if (uuid === ACTION_DENY) data = renderDeny(view);
   else if (uuid === ACTION_NEXT) data = renderNext(view);
+  else if (uuid === ACTION_BOARD) {
+    const pin = (KEYS.get(context)?.settings?.project || '').trim();
+    const session = pin ? server.sessions.find(pin) : headlineSession(ordered);
+    data = renderBoard({
+      session,
+      pending: session ? pendingBySession.get(session.id) : null,
+      question: server.currentQuestion,
+      flashOn,
+    });
+  }
   else if (uuid === ACTION_USAGE) {
     const metric = (KEYS.get(context)?.settings?.metric === '7d') ? '7d' : '5h';
     data = renderUsage(usageView(metric));
