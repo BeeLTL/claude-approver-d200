@@ -8,6 +8,7 @@ import { RuleBook, ruleFor } from './rules.js';
 const MAX_BODY = 1024 * 1024; // hook payloads carry tool_input; 1 MB is plenty
 const RETRY_MS = 5000;
 const MAX_CHOICES = 4;
+const MAX_QUESTIONS = 4;
 
 // AskUserQuestion is a tool, so it arrives as a permission request like any
 // other -- but "allow" only means "let Claude show me the question", which is
@@ -43,7 +44,6 @@ export class HookServer extends EventEmitter {
     this.retryTimer = null;
     this.queue = [];
     this.cursor = 0;
-    this.diag = []; // last few key events, for identifying actions from evidence
     this.question = null; // the question Claude is currently showing, if any
     this.sessions = new SessionRegistry();
     this.rules = new RuleBook();
@@ -189,10 +189,14 @@ export class HookServer extends EventEmitter {
         JSON.stringify({
           ok: true,
           pending: this.queue.length,
-          question: this.question
-            ? { header: this.question.header, options: this.question.options.map((o) => o.label) }
+          question: this.currentQuestion
+            ? {
+                header: this.currentQuestion.header,
+                options: this.currentQuestion.options.map((o) => o.label),
+                step: this.question.index + 1,
+                of: this.question.items.length,
+              }
             : null,
-          diag: this.diag,
           sessions: this.sessions.ordered().map((s) => ({
             project: s.project,
             state: s.state,
@@ -256,8 +260,23 @@ export class HookServer extends EventEmitter {
   // A question from the MCP server. Unlike a permission request there is no
   // sensible timeout default: Claude is simply waiting, and so is the user.
   _ask(payload, res) {
-    const options = Array.isArray(payload.options) ? payload.options.slice(0, MAX_CHOICES) : [];
-    if (!payload.question || options.length < 2) {
+    // A call may carry several questions; the keys walk through them in order
+    // and the answers come back together, so a three-part decision costs one
+    // tool call rather than three round trips.
+    const raw = Array.isArray(payload.questions)
+      ? payload.questions
+      : [{ header: payload.header, question: payload.question, options: payload.options }];
+
+    const items = raw.slice(0, MAX_QUESTIONS).map((q) => ({
+      header: q.header || 'Question',
+      question: q.question || '',
+      options: (Array.isArray(q.options) ? q.options : [])
+        .slice(0, MAX_CHOICES)
+        .map((o) => ({ label: o.label, description: o.description })),
+    }));
+
+    const usable = items.filter((q) => q.question && q.options.length >= 2);
+    if (!usable.length || usable.length !== items.length) {
       res.writeHead(400, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ cancelled: true, reason: 'malformed question' }));
       return;
@@ -268,30 +287,45 @@ export class HookServer extends EventEmitter {
       this._closeQuestion({ cancelled: true, reason: 'superseded by a newer question' });
     }
 
-    this.question = {
-      header: payload.header || 'Question',
-      question: payload.question,
-      options: options.map((o) => ({ label: o.label, description: o.description })),
-      res,
-      at: Date.now(),
-    };
-    this.emit('log', `question on the keys: ${this.question.header}`);
+    this.question = { items, index: 0, answers: [], res, at: Date.now() };
+    this.emit('log', `${items.length} question(s) on the keys: ${items[0].header}`);
     this.emit('change');
   }
 
-  // Answer the waiting MCP question by index. Returns the chosen option.
+  // The question currently on the keys, of however many are in flight.
+  get currentQuestion() {
+    const q = this.question;
+    if (!q || !q.items) return null;
+    return q.items[q.index] || null;
+  }
+
+  // Record an answer and move to the next question, or finish. Returns the
+  // chosen option, plus whether more questions are still waiting.
   answer(index) {
     const question = this.question;
     if (!question || !question.res) return null;
-    const option = question.options[index];
+    const current = this.currentQuestion;
+    const option = current && current.options[index];
     if (!option) return null;
-    this._closeQuestion({ label: option.label, index });
+
+    question.answers.push({ question: current.question, header: current.header, label: option.label, index });
+    question.index += 1;
     this.emit('log', `answered: ${option.label}`);
-    return option;
+
+    const more = question.index < question.items.length;
+    if (!more) {
+      this._closeQuestion({ answers: question.answers });
+    } else {
+      this.emit('change'); // repaint the keys with the next question at once
+    }
+    return { ...option, more, remaining: question.items.length - question.index };
   }
 
   _closeQuestion(payload) {
     const question = this.question;
+    if (question && question.answers && question.answers.length && payload.cancelled) {
+      payload = { ...payload, answers: question.answers };
+    }
     this.question = null;
     if (question && question.res && !question.res.writableEnded) {
       try {
@@ -375,7 +409,14 @@ export class HookServer extends EventEmitter {
     // that picker with a keystroke.
     const choices = parseChoices(hook);
     if (choices) {
-      this.question = { ...choices, session: hook.session_id || '', at: Date.now() };
+      this.question = {
+        items: [{ header: choices.header, question: choices.question, options: choices.options }],
+        index: 0,
+        answers: [],
+        res: null, // nothing to answer: Claude Code's own picker owns this one
+        session: hook.session_id || '',
+        at: Date.now(),
+      };
       this.emit('log', `question: ${choices.header}`);
       this.emit('change');
       this._ack(res);

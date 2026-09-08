@@ -20,6 +20,7 @@ import readline from 'readline';
 const PLUGIN = { host: '127.0.0.1', port: Number(process.env.ASK_DECK_PORT) || 9247 };
 const SERVER_INFO = { name: 'ask-deck', version: '1.0.0' };
 const FALLBACK_PROTOCOL = '2025-06-18';
+const NEWLINE = String.fromCharCode(10);
 
 function log(...args) {
   process.stderr.write('[ask-deck] ' + args.join(' ') + '\n');
@@ -41,35 +42,51 @@ const TOOL = {
   name: 'ask_on_deck',
   title: 'Ask on the Ulanzi deck',
   description:
-    'Ask the user a multiple-choice question and wait for them to answer it by pressing a key ' +
-    'on their Ulanzi deck. Each option appears on its own Answer key. Prefer this over ' +
+    'Ask the user one or more multiple-choice questions and wait for them to answer by pressing ' +
+    'keys on their Ulanzi deck. Each option appears on its own Answer key, and several questions ' +
+    'are walked through one at a time, so ask them together in one call. Prefer this over ' +
     'AskUserQuestion whenever the user is at their deck, because a deck press cannot answer ' +
     'AskUserQuestion. Returns the label of the option they chose. Blocks until they answer, ' +
     'so only call it when a decision genuinely needs their input.',
   inputSchema: {
     type: 'object',
     properties: {
-      question: { type: 'string', description: 'The question, phrased as a full sentence.' },
-      header: {
-        type: 'string',
-        description: 'A short label for the question, at most about 16 characters.',
-      },
-      options: {
+      questions: {
         type: 'array',
-        minItems: 2,
+        minItems: 1,
         maxItems: 4,
-        description: 'The answers to offer, in order. Each becomes one Answer key.',
+        description:
+          'The questions to ask, in order. The keys show one at a time and move to the next as ' +
+          'each is answered, so several related decisions cost one call rather than a round trip ' +
+          'each. All the answers come back together.',
         items: {
           type: 'object',
           properties: {
-            label: { type: 'string', description: 'Short answer text shown on the key.' },
-            description: { type: 'string', description: 'What choosing this means.' },
+            question: { type: 'string', description: 'The question, phrased as a full sentence.' },
+            header: {
+              type: 'string',
+              description: 'A short label for it, at most about 16 characters.',
+            },
+            options: {
+              type: 'array',
+              minItems: 2,
+              maxItems: 4,
+              description: 'The answers to offer, in order. Each becomes one Answer key.',
+              items: {
+                type: 'object',
+                properties: {
+                  label: { type: 'string', description: 'Short answer text shown on the key.' },
+                  description: { type: 'string', description: 'What choosing this means.' },
+                },
+                required: ['label'],
+              },
+            },
           },
-          required: ['label'],
+          required: ['question', 'options'],
         },
       },
     },
-    required: ['question', 'options'],
+    required: ['questions'],
   },
 };
 
@@ -106,37 +123,53 @@ function askPlugin(payload) {
 
 async function callTool(id, params) {
   const args = (params && params.arguments) || {};
-  const options = Array.isArray(args.options) ? args.options.filter((o) => o && o.label) : [];
+  // A single question may also arrive flat, which keeps simpler callers working.
+  const raw = Array.isArray(args.questions) ? args.questions : [args];
+  const questions = raw
+    .filter((q) => q && q.question && Array.isArray(q.options))
+    .map((q) => ({
+      question: q.question,
+      header: q.header || '',
+      options: q.options.filter((o) => o && o.label).slice(0, 4),
+    }))
+    .filter((q) => q.options.length >= 2);
 
-  if (!args.question || options.length < 2) {
-    return fail(id, -32602, 'ask_on_deck needs a question and at least two options');
+  if (!questions.length) {
+    return fail(id, -32602, 'ask_on_deck needs at least one question with two or more options');
   }
 
   try {
-    const answer = await askPlugin({
-      question: args.question,
-      header: args.header || '',
-      options: options.slice(0, 4),
-    });
+    const answer = await askPlugin({ questions: questions.slice(0, 4) });
+    const answers = Array.isArray(answer.answers) ? answer.answers : [];
 
     if (answer.cancelled) {
+      const got = answers.length
+        ? ' They answered ' + answers.map((a) => JSON.stringify(a.label)).join(', ') + ' first.'
+        : '';
       return reply(id, {
         content: [
           {
             type: 'text',
             text:
-              'The user did not answer on the deck (' +
+              'The user did not finish answering on the deck (' +
               (answer.reason || 'no answer') +
-              '). Ask them in the conversation instead.',
+              ').' +
+              got +
+              ' Ask them in the conversation instead.',
           },
         ],
+        structuredContent: { cancelled: true, answers },
       });
     }
 
-    log('answered:', answer.label);
+    log('answered:', answers.map((a) => a.label).join(' | '));
+    const text =
+      answers.length === 1
+        ? 'The user chose: ' + answers[0].label
+        : answers.map((a) => (a.header || a.question) + ' -> ' + a.label).join(NEWLINE);
     return reply(id, {
-      content: [{ type: 'text', text: 'The user chose: ' + answer.label }],
-      structuredContent: { label: answer.label, index: answer.index },
+      content: [{ type: 'text', text }],
+      structuredContent: { answers },
     });
   } catch (err) {
     // The deck plugin being absent must never break the session -- say so and

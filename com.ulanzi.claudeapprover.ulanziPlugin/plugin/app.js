@@ -49,25 +49,6 @@ function actionOf(context) {
   return ($UD.decodeContext(context) || {}).uuid || '';
 }
 
-// Diagnostic: record exactly what UlanziStudio sends for a key, so the action
-// a press belongs to can be identified from evidence rather than assumption.
-// Surfaced on GET /hook.
-function trace(event, jsn) {
-  const context = jsn && jsn.context;
-  server.diag.unshift({
-    at: new Date().toISOString().slice(11, 19),
-    event,
-    context: context || null,
-    decoded: context ? $UD.decodeContext(context) : null,
-    msgUuid: jsn && jsn.uuid,
-    msgKey: jsn && jsn.key,
-    msgActionId: jsn && jsn.actionid,
-    resolved: context ? actionOf(context) : null,
-  });
-  server.diag.length = Math.min(server.diag.length, 10);
-}
-
-// The last path segment is what actually identifies a project on a key.
 function projectName(cwd) {
   if (!cwd) return '';
   return String(cwd).replace(/[\\/]+$/, '').split(/[\\/]/).pop() || '';
@@ -129,11 +110,14 @@ function paint(context, uuid, view, slots, ordered, pendingBySession) {
   else if (uuid === ACTION_NEXT) data = renderNext(view);
   else if (CHOICE_ACTIONS.includes(uuid)) {
     const index = CHOICE_ACTIONS.indexOf(uuid);
-    const question = server.question;
+    const current = server.currentQuestion;
+    const progress = server.question && server.question.items.length > 1
+      ? ` ${server.question.index + 1}/${server.question.items.length}`
+      : '';
     data = renderChoice({
       index,
-      choice: question ? question.options[index] : null,
-      header: question ? question.header : '',
+      choice: current ? current.options[index] : null,
+      header: current ? current.header + progress : '',
     });
   }
   else if (uuid === ACTION_SESSION) {
@@ -259,7 +243,6 @@ $UD.onConnected(() => {
 
 $UD.onAdd((jsn) => {
   const context = jsn.context;
-  trace('add', jsn);
   if (!context) return;
   KEYS.set(context, { uuid: actionOf(context), settings: jsn.param || {} });
   applySettings(jsn.param);
@@ -290,7 +273,6 @@ $UD.onClear((jsn) => {
 $UD.onRun((jsn) => {
   const context = jsn.context;
   const uuid = actionOf(context);
-  trace('run', jsn);
 
   if (uuid === ACTION_SESSION) return; // a status key, nothing to press
 
@@ -301,8 +283,8 @@ $UD.onRun((jsn) => {
 
   if (CHOICE_ACTIONS.includes(uuid)) {
     const index = CHOICE_ACTIONS.indexOf(uuid);
-    const question = server.question;
-    const option = question && question.options[index];
+    const current = server.currentQuestion;
+    const option = current && current.options[index];
     if (!option) {
       $UD.showAlert(context);
       $UD.toast('No question is waiting');
@@ -316,8 +298,12 @@ $UD.onRun((jsn) => {
       $UD.toast(`Answering: ${option.label}`);
       return;
     }
-    log(`answered "${answered.label}"`);
-    $UD.toast(`Answered: ${answered.label}`);
+    log(`answered "${answered.label}"${answered.more ? `, ${answered.remaining} to go` : ''}`);
+    $UD.toast(
+      answered.more
+        ? `${answered.label} — ${answered.remaining} more`
+        : `Answered: ${answered.label}`
+    );
     return;
   }
 

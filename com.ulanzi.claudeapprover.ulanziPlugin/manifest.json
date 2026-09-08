@@ -3,7 +3,7 @@
   "Name": "Claude Code Approver",
   "Description": "Approve, always-allow or deny Claude Code permission requests from your deck, and watch every session's state and context window on its own key.",
   "Author": "BeeLTL",
-  "Version": "1.5.0",
+  "Version": "1.6.0",
   "Icon": "assets/icons/icon.svg",
   "Category": "Claude Code",
   "CategoryIcon": "assets/icons/icon.svg",

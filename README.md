@@ -120,6 +120,12 @@ tool, `ask_on_deck`. An MCP tool call blocks until the server returns, so the pl
 puts each option on an Answer key, and returns the label you press as the tool result. No window
 focus, no synthetic keystrokes.
 
+A call may carry up to four questions. The keys show one at a time and repaint with the next the
+instant you answer -- the header reads `Database 1/3` -- and every answer comes back together. Three
+presses either way, but batching removes the model round trip that would otherwise sit between
+them. If something interrupts the sequence, the answers already given are returned rather than
+lost.
+
 Register it once:
 
 ```bash
