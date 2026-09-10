@@ -42,15 +42,11 @@ const TOOL = {
   name: 'ask_on_deck',
   title: 'Ask on the Ulanzi deck',
   description:
-    'Ask the user one or more multiple-choice questions and wait for them to answer by pressing ' +
-    'keys on their Ulanzi deck. Each option appears on its own Answer key, and several questions ' +
-    'are walked through one at a time, so ask them together in one call. Prefer this over ' +
-    'AskUserQuestion whenever the user is at their deck, because a deck press cannot answer ' +
-    'AskUserQuestion. Returns the label of the option they chose. Blocks until they answer, ' +
-    'so only call it when a decision genuinely needs their input. IMPORTANT: the question and ' +
-    'its options appear only on the deck keys, never in the conversation -- so always write them ' +
-    'out in your message before calling this tool, or a user who is not looking at their deck ' +
-    'has no idea what is being asked.',
+    'Ask the user multiple-choice questions, answered by pressing keys on their Ulanzi deck. ' +
+    'Use instead of AskUserQuestion, which a deck cannot answer. Pass several questions in one ' +
+    'call; the keys step through them. Blocks until answered, so only ask when you need a ' +
+    'decision. The keys are the only place the question appears, so write it and its options ' +
+    'in your message first.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -92,6 +88,52 @@ const TOOL = {
     required: ['questions'],
   },
 };
+
+// A tool definition costs tokens on every single request, whether or not it is
+// ever called. So the tool is only advertised when the deck plugin is actually
+// running: no deck, no tool, no cost. Availability is re-checked in the
+// background and the client is told when it changes.
+const PROBE_MS = 400;
+const WATCH_MS = 30000;
+let deckUp = false;
+
+// Up means: the plugin answers, and at least one Answer key is on the deck.
+// A running plugin with no Answer keys cannot take an answer, so offering the
+// tool would cost tokens for something nobody can press.
+function probeDeck() {
+  return new Promise((resolve) => {
+    const req = http.request(
+      { host: PLUGIN.host, port: PLUGIN.port, path: '/hook', method: 'GET', timeout: PROBE_MS },
+      (res) => {
+        let raw = '';
+        res.on('data', (chunk) => (raw += chunk));
+        res.on('end', () => {
+          try {
+            resolve(res.statusCode === 200 && JSON.parse(raw).answerKeys > 0);
+          } catch {
+            resolve(false);
+          }
+        });
+      }
+    );
+    req.on('timeout', () => {
+      req.destroy();
+      resolve(false);
+    });
+    req.on('error', () => resolve(false));
+    req.end();
+  });
+}
+
+function watchDeck() {
+  setInterval(async () => {
+    const up = await probeDeck();
+    if (up === deckUp) return;
+    deckUp = up;
+    log(up ? 'Answer keys appeared, offering the tool' : 'Answer keys gone, withdrawing the tool');
+    send({ jsonrpc: '2.0', method: 'notifications/tools/list_changed' });
+  }, WATCH_MS).unref();
+}
 
 // Hand the question to the plugin and hold the connection open. The plugin does
 // not answer until a key is pressed, which is exactly the behaviour we want:
@@ -198,9 +240,11 @@ function handle(message) {
 
   switch (method) {
     case 'initialize':
+      watchDeck();
       return reply(id, {
         protocolVersion: (params && params.protocolVersion) || FALLBACK_PROTOCOL,
-        capabilities: { tools: {} },
+        // listChanged: the tool appears and disappears with the deck.
+        capabilities: { tools: { listChanged: true } },
         serverInfo: SERVER_INFO,
       });
 
@@ -209,7 +253,11 @@ function handle(message) {
       return; // notifications carry no id and expect no reply
 
     case 'tools/list':
-      return reply(id, { tools: [TOOL] });
+      return probeDeck().then((up) => {
+        deckUp = up;
+        if (!up) log('no Answer keys on the deck, advertising no tools');
+        reply(id, { tools: up ? [TOOL] : [] });
+      });
 
     case 'tools/call':
       if (!params || params.name !== TOOL.name) {

@@ -97,6 +97,14 @@ function approvalView() {
 // Session keys claim slots in the order they were dropped onto the deck, so
 // however many you add is how many sessions you watch. A key with a project
 // name in its settings pins itself to that project instead.
+// Recounted whenever keys are added or removed, so the MCP server can decide
+// whether offering ask_on_deck is worth anyone's tokens.
+function countAnswerKeys() {
+  let n = 0;
+  for (const key of KEYS.values()) if (CHOICE_ACTIONS.includes(key.uuid)) n++;
+  server.answerKeys = n;
+}
+
 function sessionSlots() {
   const slots = new Map();
   let index = 0;
@@ -302,6 +310,7 @@ $UD.onAdd((jsn) => {
   if (!context) return;
   KEYS.set(context, { uuid: actionOf(context), settings: jsn.param || {} });
   if (actionOf(context) === ACTION_USAGE) startUsagePolling();
+  countAnswerKeys();
   applySettings(jsn.param);
   repaint();
 });
@@ -325,6 +334,7 @@ $UD.onClear((jsn) => {
     KEYS.delete(item.context);
     PAINTED.delete(item.context);
   }
+  countAnswerKeys();
 });
 
 $UD.onRun((jsn) => {

@@ -151,6 +151,19 @@ Then restart Claude Code. Without the `claude` CLI on PATH, add the same thing b
 If the deck plugin is not running, the tool says so and Claude asks in the conversation instead --
 it degrades rather than breaking. `ASK_DECK_PORT` overrides the port if you changed it.
 
+### It costs nothing when you are not using it
+
+A tool definition is re-sent on every request whether or not it is ever called, which for this one
+is a few hundred tokens a turn for the length of a session. So the server withholds it unless
+there is actually a key to press: it asks the plugin how many Answer keys are on the deck, and
+advertises no tools at all when the answer is none. Leave the server registered permanently --
+with the deck closed, or with no Answer keys placed, it costs nothing. Availability is re-checked
+every 30 seconds and the client is notified when it changes.
+
+Everything else in the plugin is free by construction: the hooks and the status keys involve no
+model at all. The one ongoing expense is Plan Usage, which spends an API request every five
+minutes -- ironically, to tell you how much quota you have spent.
+
 The question exists only on the keys -- the conversation shows a tool call and nothing else -- so
 the tool description tells Claude to write the question and its options out in its message before
 calling it. Without that you would be staring at a spinner wondering what your deck wants.

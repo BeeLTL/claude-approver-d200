@@ -42,6 +42,10 @@ export class HookServer extends EventEmitter {
     this.queue = [];
     this.cursor = 0;
     this.question = null; // the question Claude is currently showing, if any
+    // How many Answer keys are on the deck. The MCP server reads this and
+    // withholds its tool entirely when there is nothing to press, so an unused
+    // feature costs nothing per request.
+    this.answerKeys = 0;
     this.sessions = new SessionRegistry();
     this.rules = new RuleBook();
     this.options = { holdSeconds: 110, onTimeout: 'ask', cwdFilter: '', token: '' };
@@ -185,6 +189,7 @@ export class HookServer extends EventEmitter {
       res.end(
         JSON.stringify({
           ok: true,
+          answerKeys: this.answerKeys,
           pending: this.queue.length,
           question: this.currentQuestion
             ? {
