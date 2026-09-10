@@ -1,14 +1,24 @@
 {
   "Name": "Claude Code Approver",
-  "Description": "Approve or deny Claude Code permission requests from your deck.",
+  "Description": "Approve, always-allow or deny Claude Code permission requests from your deck, answer its questions, and watch every session and your plan usage.",
   "Localization": {
+    "Automatically, by key order": "Automatically, by key order",
+    "Claude config folder": "Claude config folder",
+    "Deny the request": "Deny the request",
+    "Fall through to the terminal prompt": "Fall through to the terminal prompt",
+    "Hold seconds": "Hold seconds",
     "Listen port": "Listen port",
     "On timeout": "On timeout",
-    "Fall through to the terminal prompt": "Fall through to the terminal prompt",
-    "Deny the request": "Deny the request",
     "Only this working directory": "Only this working directory",
-    "Leave empty to answer every session": "Leave empty to answer every session",
+    "Option 1": "Option 1",
+    "Option 2": "Option 2",
+    "Option 3": "Option 3",
+    "Option 4": "Option 4",
+    "Pin to project": "Pin to project",
     "Shared secret": "Shared secret",
-    "Status": "Status"
+    "Show": "Show",
+    "The 5-hour rolling limit": "The 5-hour rolling limit",
+    "The weekly limit": "The weekly limit",
+    "This key answers": "This key answers"
   }
 }

@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Answer</title>
+  <link rel="stylesheet" href="../libs/css/uspi.css">
+  <script src="../libs/js/constants.js"></script>
+  <script src="../libs/js/eventEmitter.js"></script>
+  <script src="../libs/js/timers.js"></script>
+  <script src="../libs/js/utils.js"></script>
+  <script src="../libs/js/ulanziApi.js"></script>
+</head>
+<body>
+  <div class="uspi-wrapper">
+    <form id="property-inspector">
+      <div class="uspi-item">
+        <div class="uspi-item-label" data-localize>This key answers</div>
+        <select class="uspi-item-value" name="answerIndex">
+          <option value="" data-localize>Automatically, by key order</option>
+          <option value="1" data-localize>Option 1</option>
+          <option value="2" data-localize>Option 2</option>
+          <option value="3" data-localize>Option 3</option>
+          <option value="4" data-localize>Option 4</option>
+        </select>
+      </div>
+    </form>
+    <p style="color:#8b8b95;font-size:12px;padding:8px 12px;line-height:1.5">
+      Left automatic, Answer keys take options 1, 2, 3 and 4 in the order you added them, so
+      dropping a few on the deck just works. Choose a number to pin this key to one option
+      regardless of where it sits.
+    </p>
+  </div>
+
+  <script>
+    $UD.connect();
+    $UD.onAdd((jsn) => {
+      if (jsn && jsn.param) Utils.setFormValue(jsn.param, '#property-inspector');
+    });
+    document.getElementById('property-inspector').addEventListener('change', () => {
+      $UD.sendParamFromPlugin(Utils.getFormValue('#property-inspector'));
+    });
+  </script>
+</body>
+</html>

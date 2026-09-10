@@ -25,7 +25,7 @@ Claude Code ◀──{"decision":"allow"}──┘
 | **Deny** | Red while a request waits; press to reject. |
 | **Next Request** | Cycles when several sessions are queued (`2/3`). |
 | **Claude Status** | One live key per Claude Code session — see below. |
-| **Answer 1–4** | One key per option of a question asked through the `ask_on_deck` MCP tool. |
+| **Answer** | Answers one option of a question. Place a few; each takes the next option. |
 | **Plan Usage** | How much of your 5-hour or weekly limit is gone, with a countdown to the reset. |
 | **Session Board** | The wide key: the session that most wants you, in full — see below. |
 
@@ -186,7 +186,9 @@ Declining Claude Code's built-in `AskUserQuestion` does not answer it either; it
 
 So questions travel over MCP instead. `mcp/ask-deck.mjs` is a small stdio MCP server exposing one
 tool, `ask_on_deck`. An MCP tool call blocks until the server returns, so the plugin holds it open,
-puts each option on an Answer key, and returns the label you press as the tool result. No window
+puts each option on an Answer key, and returns the label you press as the tool result.
+There is one Answer action rather than four: place as many keys as the questions you want to
+answer and each takes the next option, or pin a key to a fixed option in its settings. No window
 focus, no synthetic keystrokes.
 
 A call may carry up to four questions. The keys show one at a time and repaint with the next the

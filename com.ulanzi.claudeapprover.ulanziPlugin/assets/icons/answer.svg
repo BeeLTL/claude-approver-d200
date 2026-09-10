@@ -1,5 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
   <rect width="200" height="200" rx="24" fill="#1f1f23"/>
   <circle cx="100" cy="100" r="54" fill="none" stroke="#b46ff0" stroke-width="9"/>
-  <text x="100" y="126" font-family="Segoe UI,Helvetica,Arial,sans-serif" font-size="72" font-weight="800" text-anchor="middle" fill="#b46ff0">2</text>
+  <circle cx="72" cy="100" r="9" fill="#b46ff0"/>
+  <circle cx="100" cy="100" r="9" fill="#b46ff0"/>
+  <circle cx="128" cy="100" r="9" fill="#b46ff0"/>
 </svg>

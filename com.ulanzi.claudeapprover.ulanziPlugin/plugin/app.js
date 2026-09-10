@@ -11,6 +11,7 @@ import {
   renderBoard,
 } from './lib/render.js';
 import { fetchUsage, formatReset, UsageError } from './lib/usage.js';
+import { assignAnswerIndexes, MAX_ANSWER_KEYS } from './lib/answer-keys.js';
 
 const PLUGIN_UUID = 'com.ulanzi.ulanzistudio.claudeapprover';
 const ACTION_APPROVE = `${PLUGIN_UUID}.approve`;
@@ -18,8 +19,10 @@ const ACTION_ALWAYS = `${PLUGIN_UUID}.always`;
 const ACTION_DENY = `${PLUGIN_UUID}.deny`;
 const ACTION_NEXT = `${PLUGIN_UUID}.next`;
 const ACTION_SESSION = `${PLUGIN_UUID}.session`;
-// One action per answer slot; the trailing digit is the option it picks.
-const CHOICE_ACTIONS = [1, 2, 3, 4].map((n) => `${PLUGIN_UUID}.choice${n}`);
+// One Answer action, however many keys you place. Which option a key picks
+// comes from its settings; left unset, keys take 1, 2, 3, 4 in the order they
+// were added, so dropping four on the deck just works.
+const ACTION_ANSWER = `${PLUGIN_UUID}.answer`;
 const ACTION_USAGE = `${PLUGIN_UUID}.usage`;
 const ACTION_BOARD = `${PLUGIN_UUID}.board`;
 
@@ -101,8 +104,13 @@ function approvalView() {
 // whether offering ask_on_deck is worth anyone's tokens.
 function countAnswerKeys() {
   let n = 0;
-  for (const key of KEYS.values()) if (CHOICE_ACTIONS.includes(key.uuid)) n++;
+  for (const key of KEYS.values()) if (key.uuid === ACTION_ANSWER) n++;
   server.answerKeys = n;
+}
+
+function answerIndexFor(context) {
+  const index = assignAnswerIndexes(KEYS, ACTION_ANSWER, MAX_ANSWER_KEYS).get(context);
+  return index === undefined ? -1 : index;
 }
 
 function sessionSlots() {
@@ -153,9 +161,9 @@ function paint(context, uuid, view, slots, ordered, pendingBySession) {
     const metric = (KEYS.get(context)?.settings?.metric === '7d') ? '7d' : '5h';
     data = renderUsage(usageView(metric));
   }
-  else if (CHOICE_ACTIONS.includes(uuid)) {
-    const index = CHOICE_ACTIONS.indexOf(uuid);
-    const current = server.currentQuestion;
+  else if (uuid === ACTION_ANSWER) {
+    const index = answerIndexFor(context);
+    const current = index < 0 ? null : server.currentQuestion;
     const progress = server.question && server.question.items.length > 1
       ? ` ${server.question.index + 1}/${server.question.items.length}`
       : '';
@@ -355,8 +363,8 @@ $UD.onRun((jsn) => {
     return;
   }
 
-  if (CHOICE_ACTIONS.includes(uuid)) {
-    const index = CHOICE_ACTIONS.indexOf(uuid);
+  if (uuid === ACTION_ANSWER) {
+    const index = answerIndexFor(context);
     const current = server.currentQuestion;
     const option = current && current.options[index];
     if (!option) {
