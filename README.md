@@ -57,6 +57,12 @@ how full its context window is:
 | Purple | Input needed *(flashes)* |
 | Green | Finished |
 | Grey | Idle |
+| Red | The plugin is not listening -- see below |
+
+A key reading **offline** means the plugin could not bind its port, usually because a stale
+copy still holds it. That is deliberately distinct from idle: silence has two causes, and
+"nothing is happening" and "nothing can happen" call for different reactions. The wide board
+spells it out in a sentence.
 
 When that session is waiting on a decision, the key switches to the question itself — the tool,
 the actual command, and the seconds left — because "what am I about to allow?" matters more than
@@ -72,6 +78,14 @@ but they do carry `transcript_path`, and the newest assistant line records
 `input_tokens + cache_creation + cache_read` — exactly what was in the window on that turn.
 It is re-read at most every 5 seconds. The bar turns amber past 60%, orange past 85% and red
 past 95%. A `∞2` under the bar means that session has two always-allow rules.
+
+The window size is not recorded anywhere, so it is inferred -- but **per model, not per
+session**. The largest prompt ever seen for a model is a lower bound on its window, rounded up
+to the next real tier. Inferring it per session made the keys lie about each other: a quiet
+194k session read 97% while a busier 227k one read 46%, because the quiet one had never proved
+its window was large. One session reaching 822k now settles the window for every session on
+that model, and the percentages became comparable -- which is the entire point of putting them
+side by side.
 
 ### The Session Board (the wide key)
 
