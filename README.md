@@ -27,6 +27,7 @@ Claude Code ◀──{"decision":"allow"}──┘
 | **Claude Status** | One live key per Claude Code session — see below. |
 | **Answer 1–4** | One key per option of a question asked through the `ask_on_deck` MCP tool. |
 | **Plan Usage** | How much of your 5-hour or weekly limit is gone, with a countdown to the reset. |
+| **Session Board** | The wide key: the session that most wants you, in full — see below. |
 
 Keys sit dim and grey when nothing is pending, so the deck doubles as an at-a-glance
 "is Claude waiting on me" light. If the plugin is not running, Claude Code never gets an answer
@@ -71,6 +72,59 @@ but they do carry `transcript_path`, and the newest assistant line records
 `input_tokens + cache_creation + cache_read` — exactly what was in the window on that turn.
 It is re-read at most every 5 seconds. The bar turns amber past 60%, orange past 85% and red
 past 95%. A `∞2` under the bar means that session has two always-allow rules.
+
+### The Session Board (the wide key)
+
+The D200 has one slot that is not square: `3_2`, 464x196, spanning two columns on the bottom
+row. That is room for the whole picture rather than a fragment of it:
+
+```
+● SESSION  WORKING                        47s
+claude-approver-d200
+claude-opus-5 · high · main
+▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░░░░░░░░░░░░░░░░░░░   52%
+```
+
+It follows whichever session most wants a human — needs approval first, then input needed, then
+working, then finished — or pins to one project if you name it in the key's settings. When a
+request or a question is waiting, the heading becomes that instead of the state, because the
+thing waiting on you outranks the status.
+
+The model, effort and branch cost nothing to show: they are already on the same transcript line
+the context reading comes from.
+
+**Ulanzi Studio cannot assign that slot.** There is no way to drag onto it, and Studio clears
+whatever is there whenever the page is edited in its UI. So the profile JSON is patched directly:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scriptspply-bigkey.ps1
+```
+
+Quit Ulanzi Studio first — it rewrites profiles on exit and would undo the patch, and the script
+refuses to run while it is open. The page manifest is backed up alongside itself. Pass `-Revert`
+to hand the slot back to Ulanzi's own widget.
+
+The patch survives restarts and reboots. It does **not** survive rearranging keys on that page,
+because Studio then re-saves the page from a model that knows nothing about `3_2`. Re-run the
+script if the board goes blank after you have been moving keys around.
+
+## What it costs
+
+Almost all of the plugin is free. The hooks and the status keys involve no model at all — they
+are HTTP calls and local file reads.
+
+| Component | Token cost | When |
+|---|---|---|
+| Approve / Deny / Always Allow | none | hook only, no model |
+| Claude Status, Session Board, Next | none | hooks plus your transcript on disk |
+| `ask_on_deck` definition | ~366 | every request, but only while Answer keys are on the deck |
+| `ask_on_deck` call | ~100–200 | per question actually asked |
+| Plan Usage poll | ~11 | per poll, every 5 minutes |
+
+The tool definition is the only ongoing cost, and it is charged per request rather than per use,
+so it is withheld unless there is a key to press — see below. Plan Usage costs almost nothing in
+tokens but does spend an API request every five minutes, which is worth knowing given what it
+measures. Pull the key off the deck to stop it.
 
 ## Install
 
@@ -215,13 +269,15 @@ com.ulanzi.claudeapprover.ulanziPlugin/
   manifest.json              4-segment plugin UUID, 5-segment action UUIDs
   plugin/app.js              key lifecycle, painting, decisions
   plugin/lib/hook-server.js  HTTP server + held-response queue
-  plugin/lib/rules.js        session-scoped always-allow rules
+  plugin/lib/rules.js        session-scoped always-allow
+  plugin/lib/usage.js        plan usage from the rate-limit headers rules
   plugin/lib/sessions.js     session registry + context-window reader
   plugin/lib/render.js       SVG key icons as base64 data URLs
   plugin/plugin-common-node/ vendored Ulanzi Node SDK
   property-inspector/        settings UI
   libs/                      vendored Ulanzi HTML SDK
 mcp/ask-deck.mjs             stdio MCP server: the ask_on_deck tool
+scripts/apply-bigkey.ps1     points the D200's wide slot at the Session Board
 hooks.example.json           the hook events to merge into settings.json
 ```
 
