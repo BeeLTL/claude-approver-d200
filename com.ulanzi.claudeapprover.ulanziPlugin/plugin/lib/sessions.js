@@ -7,10 +7,28 @@ import fs from 'fs';
 const TAIL_BYTES = 512 * 1024;
 const CONTEXT_TTL_MS = 5000;
 const DEFAULT_CONTEXT_WINDOW = 200000;
-// Model ids do not announce their context window, so treat the largest prompt
-// actually observed as a lower bound and round up to the next real tier. A
-// 218k turn cannot have come from a 200k window.
+// Model ids do not announce their context window, so the largest prompt ever
+// observed for a model is used as a lower bound and rounded up to the next
+// real tier. A 218k turn cannot have come from a 200k window.
+//
+// Crucially this is tracked per *model*, not per session: inferring it from
+// one session's own usage made a quiet 194k session read 97% while a busier
+// 227k one read 46%, which is worse than useless on keys meant to be compared
+// against each other. One session proving a model reaches 822k settles the
+// window for every session on that model.
 const WINDOW_TIERS = [200000, 500000, 1000000];
+const highWaterByModel = new Map();
+
+export function noteUsage(model, used) {
+  if (!model || !used) return;
+  const seen = highWaterByModel.get(model) || 0;
+  if (used > seen) highWaterByModel.set(model, used);
+}
+
+// Exposed for tests: what the plugin currently believes about each model.
+export function knownWindows() {
+  return [...highWaterByModel].map(([model, used]) => [model, contextWindowFor(model, used)]);
+}
 const IDLE_AFTER_MS = 5 * 60 * 1000;
 
 export const State = Object.freeze({
@@ -24,8 +42,9 @@ export const State = Object.freeze({
 function contextWindowFor(model, used = 0) {
   const id = String(model || '');
   if (id.includes('[1m]')) return 1000000;
-  const tier = WINDOW_TIERS.find((size) => used <= size);
-  return tier || DEFAULT_CONTEXT_WINDOW;
+  const highWater = Math.max(used, highWaterByModel.get(id) || 0);
+  const tier = WINDOW_TIERS.find((size) => highWater <= size);
+  return tier || WINDOW_TIERS[WINDOW_TIERS.length - 1];
 }
 
 // Read only the tail: transcripts run to tens of megabytes on long sessions.
@@ -67,6 +86,7 @@ export function readContextUsage(transcriptPath) {
       (usage.cache_creation_input_tokens || 0) +
       (usage.cache_read_input_tokens || 0);
     if (!used) continue;
+    noteUsage(entry.message.model, used);
     const window = contextWindowFor(entry.message.model, used);
     return {
       used,

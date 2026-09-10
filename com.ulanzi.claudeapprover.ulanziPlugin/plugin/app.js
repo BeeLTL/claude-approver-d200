@@ -146,6 +146,7 @@ function paint(context, uuid, view, slots, ordered, pendingBySession) {
       pending: session ? pendingBySession.get(session.id) : null,
       question: server.currentQuestion,
       flashOn,
+      listening: server.listening,
     });
   }
   else if (uuid === ACTION_USAGE) {
@@ -172,6 +173,7 @@ function paint(context, uuid, view, slots, ordered, pendingBySession) {
       slot,
       flashOn,
       pending: session ? pendingBySession.get(session.id) : null,
+      listening: server.listening,
     });
   } else return;
 

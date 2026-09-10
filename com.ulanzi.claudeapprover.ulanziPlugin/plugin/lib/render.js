@@ -179,7 +179,21 @@ function boardDoc(body) {
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${BOARD_W} ${BOARD_H}" width="${BOARD_W}" height="${BOARD_H}"><rect width="${BOARD_W}" height="${BOARD_H}" rx="18" fill="${BG}"/>${body}</svg>`;
 }
 
-export function renderBoard({ session, pending, question, flashOn }) {
+export function renderBoard({ session, pending, question, flashOn, listening }) {
+  if (listening === false) {
+    const body =
+      `<rect x="3" y="3" width="${BOARD_W - 6}" height="${BOARD_H - 6}" rx="16" fill="none" stroke="${RED}" stroke-width="5"/>` +
+      text('PLUGIN OFFLINE', 24, 74, 32, { fill: RED, weight: '800', anchor: 'start' }) +
+      text('nothing is listening on port 9247 -- another copy still running?', 24, 112, 17, {
+        fill: MUTED,
+        anchor: 'start',
+      }) +
+      text('Claude Code falls back to asking in the terminal', 24, 140, 17, {
+        fill: GREY,
+        anchor: 'start',
+      });
+    return toDataUrl(boardDoc(body));
+  }
   if (!session) {
     const body =
       text('no session', BOARD_W / 2, 92, 30, { fill: GREY, weight: '700' }) +
@@ -284,7 +298,17 @@ export function renderNext({ count, position }) {
 // One key, one Claude Code session: project name, what it is doing, and how
 // full its context window is. States that need a human alternate between two
 // brightnesses so they cannot be missed in a row of keys.
-export function renderSession({ session, slot, flashOn, pending }) {
+export function renderSession({ session, slot, flashOn, pending, listening }) {
+  // Silence has two causes and they need different reactions: nothing is
+  // happening, or nothing can happen. Saying "idle" for the second is a lie.
+  if (listening === false) {
+    const body =
+      `<rect x="3" y="3" width="${SIZE - 6}" height="${SIZE - 6}" rx="22" fill="none" stroke="${RED}" stroke-width="6"/>` +
+      text('offline', SIZE / 2, 96, 30, { fill: RED, weight: '800' }) +
+      text('port 9247', SIZE / 2, 128, 18, { fill: MUTED }) +
+      text('in use?', SIZE / 2, 150, 18, { fill: MUTED });
+    return toDataUrl(doc(body, BG_COLD));
+  }
   if (!session) {
     const body =
       text('no session', SIZE / 2, 96, 22, { fill: GREY }) +
