@@ -19,6 +19,31 @@ const DEFAULT_CONTEXT_WINDOW = 200000;
 const WINDOW_TIERS = [200000, 500000, 1000000];
 const highWaterByModel = new Map();
 
+// The tiered guess above only ever revises upward from what it has actually
+// observed, which is the wrong direction to be wrong in: a session on a model
+// it has not seen much traffic from yet starts out assumed to have the
+// smallest window, so it reads as nearly full long before it really is.
+// Confirmed directly against Claude Code's own context readout while
+// claude-sonnet-5 was live in this session: 207k / 1,000,000 = 21%, not the
+// ~95%+ the tiered guess gave it moments earlier under the same model. The
+// rest of the current generation is assumed to share that window rather than
+// each starting the guess over from scratch the moment you switch models --
+// unconfirmed for the others, but a shared window per generation is how the
+// API has worked historically, and the alternative is the same wrong-direction
+// mistake this section exists to fix.
+const KNOWN_WINDOWS = [
+  [/^claude-opus-5(-|$)/, 1000000],
+  [/^claude-sonnet-5(-|$)/, 1000000],
+  [/^claude-fable-5-1(-|$)/, 1000000],
+  [/^claude-haiku-4-5(-|$)/, 1000000],
+];
+
+function explicitWindowFor(model) {
+  const id = String(model || '');
+  const hit = KNOWN_WINDOWS.find(([pattern]) => pattern.test(id));
+  return hit ? hit[1] : null;
+}
+
 export function noteUsage(model, used) {
   if (!model || !used) return;
   const seen = highWaterByModel.get(model) || 0;
@@ -42,6 +67,8 @@ export const State = Object.freeze({
 function contextWindowFor(model, used = 0) {
   const id = String(model || '');
   if (id.includes('[1m]')) return 1000000;
+  const known = explicitWindowFor(id);
+  if (known) return known;
   const highWater = Math.max(used, highWaterByModel.get(id) || 0);
   const tier = WINDOW_TIERS.find((size) => highWater <= size);
   return tier || WINDOW_TIERS[WINDOW_TIERS.length - 1];
