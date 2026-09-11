@@ -33,6 +33,14 @@ Keys sit dim and grey when nothing is pending, so the deck doubles as an at-a-gl
 "is Claude waiting on me" light. If the plugin is not running, Claude Code never gets an answer
 from the hook and falls back to its normal terminal prompt — nothing breaks.
 
+### Answering somewhere else
+
+The hook does not replace Claude Code's own prompt, it races it: the terminal prompt goes up
+while the hook is still running, so the same request is live in two places and whichever answers
+first wins. Answer in the terminal and the deck finds out two ways -- Claude Code drops the held
+connection, and the tool event that follows carries the same `tool_use_id`. Either one clears the
+key immediately, so it never goes on asking for a press that can no longer do anything.
+
 ### Always Allow
 
 Pressing Always returns an `updatedPermissions` entry alongside the allow, which asks Claude Code

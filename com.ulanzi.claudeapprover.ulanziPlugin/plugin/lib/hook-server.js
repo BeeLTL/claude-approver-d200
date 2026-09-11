@@ -28,6 +28,21 @@ function parseChoices(hook) {
   };
 }
 
+// Claude Code shows its own permission prompt while the hook is still running,
+// so the deck and the terminal race for the same decision. The tool event that
+// follows a request settled in the terminal carries the same tool_use_id, which
+// is one of the two ways we learn that a lit key is already dead -- the other
+// being Claude Code dropping the connection it was holding.
+function sameRequest(entry, hook) {
+  if (hook.tool_use_id && entry.toolUseId) return hook.tool_use_id === entry.toolUseId;
+  // A host that omits tool_use_id still identifies the call by what it is.
+  return (
+    entry.session === (hook.session_id || '') &&
+    entry.tool === (hook.tool_name || '') &&
+    JSON.stringify(entry.input) === JSON.stringify(hook.tool_input || {})
+  );
+}
+
 // A Claude Code PermissionRequest hook is an HTTP POST whose *response* carries
 // the decision. We simply do not answer it until a deck key is pressed, which
 // turns the deck into the permission prompt. Every other event is answered at
@@ -190,8 +205,12 @@ export class HookServer extends EventEmitter {
     if (this.cursor >= this.queue.length) this.cursor = 0;
     clearTimeout(entry.timer);
     try {
-      entry.res.writeHead(200, { 'Content-Type': 'application/json' });
-      entry.res.end(JSON.stringify(payload));
+      // The socket may already be gone: Claude Code closes it the moment the
+      // request is settled somewhere else. Nothing to answer then.
+      if (!entry.res.writableEnded && !entry.res.destroyed) {
+        entry.res.writeHead(200, { 'Content-Type': 'application/json' });
+        entry.res.end(JSON.stringify(payload));
+      }
     } catch (err) {
       this.emit('log', `could not answer ${entry.id}: ${err.message}`);
     }
@@ -374,16 +393,21 @@ export class HookServer extends EventEmitter {
         break;
 
       case 'PostToolUse':
+      case 'PostToolUseFailure':
+      case 'PermissionDenied':
         if (hook.tool_name === 'AskUserQuestion') this.clearQuestion(hook.session_id);
+        // The tool ran, failed, or was refused: whatever the key was asking
+        // about has already been settled, so put the key out.
+        this._releaseResolved(hook);
         if (session && session.state !== State.APPROVAL) session.state = State.WORKING;
         break;
 
       case 'UserPromptSubmit':
       case 'PreToolUse':
-      case 'PostToolUseFailure':
-      case 'PermissionDenied':
         // PreToolUse is deliberately status-only. Holding it would block every
-        // single tool call on a key press, which is not what anyone wants.
+        // single tool call on a key press, which is not what anyone wants. It
+        // also runs *before* PermissionRequest, so it never tells us anything
+        // about a request already on the keys.
         if (session && session.state !== State.APPROVAL) session.state = State.WORKING;
         break;
 
@@ -454,6 +478,7 @@ export class HookServer extends EventEmitter {
       cwd: hook.cwd || '',
       tool: hook.tool_name || 'Tool',
       input: hook.tool_input || {},
+      toolUseId: hook.tool_use_id || '',
       expiresAt: Date.now() + this.options.holdSeconds * 1000,
     };
 
@@ -469,10 +494,32 @@ export class HookServer extends EventEmitter {
     }
 
     entry.timer = setTimeout(() => this._expire(entry), this.options.holdSeconds * 1000);
+    // Claude Code's own prompt is up at the same time as the key, and answering
+    // there makes it drop this request -- the socket closing with no response
+    // from us is how we hear about it. res.on('close') also fires on the normal
+    // path, once we have written the answer, which writableEnded rules out.
+    res.on('close', () => {
+      if (res.writableEnded) return;
+      if (!this.queue.includes(entry)) return;
+      this.emit('log', `${entry.tool} was settled in Claude Code, clearing the key`);
+      this._release(entry);
+    });
     this.queue.push(entry);
     if (session) session.state = State.APPROVAL;
     this.emit('log', `pending ${entry.tool} from ${entry.cwd}`);
     this.emit('change');
+  }
+
+  // Someone answered in Claude Code itself while the key was still lit. Its
+  // answer is the one that counted, so drop ours without deciding anything --
+  // otherwise the key goes on asking for a press that can no longer do
+  // anything, for the rest of the hold.
+  _releaseResolved(hook) {
+    for (const entry of [...this.queue]) {
+      if (!sameRequest(entry, hook)) continue;
+      this.emit('log', `${entry.tool} was answered in Claude Code, clearing the key`);
+      this._release(entry);
+    }
   }
 
   _expire(entry) {
@@ -483,6 +530,13 @@ export class HookServer extends EventEmitter {
           })
         : {}; // no decision — Claude Code prompts in the terminal as usual
     this.emit('log', `expired ${entry.tool} (${this.options.onTimeout})`);
+    this._release(entry, payload);
+  }
+
+  // Let a request go without a decision from the keys. The default payload is
+  // no decision at all, which leaves Claude Code's own permission flow in
+  // charge of it.
+  _release(entry, payload = {}) {
     const stillQueued = this.queue.filter((e) => e !== entry && e.session === entry.session);
     if (!stillQueued.length) this.sessions.setState(entry.session, State.WORKING);
     this._resolve(entry, payload);
