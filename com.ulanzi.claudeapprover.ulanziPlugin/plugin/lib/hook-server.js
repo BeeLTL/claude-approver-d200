@@ -11,21 +11,23 @@ const MAX_CHOICES = 4;
 const MAX_QUESTIONS = 4;
 
 // AskUserQuestion is a tool, so it arrives as a permission request like any
-// other -- but "allow" only means "let Claude show me the question", which is
-// not what a deck key should imply. The options travel in tool_input, so the
-// deck can offer them directly instead.
+// other -- but a plain "allow" only means "let Claude show me the question",
+// which is not what a deck key should imply. The options travel in tool_input,
+// so the deck can offer them directly and hand the answer back as updatedInput.
 function parseChoices(hook) {
   if (hook.tool_name !== 'AskUserQuestion') return null;
   const questions = hook.tool_input && hook.tool_input.questions;
   if (!Array.isArray(questions) || !questions.length) return null;
-  const q = questions[0];
-  const options = Array.isArray(q.options) ? q.options.slice(0, MAX_CHOICES) : [];
-  if (!options.length) return null;
-  return {
+  const items = questions.slice(0, MAX_QUESTIONS).map((q) => ({
     header: q.header || 'Question',
     question: q.question || '',
-    options: options.map((o) => ({ label: o.label, description: o.description })),
-  };
+    options: (Array.isArray(q.options) ? q.options : [])
+      .slice(0, MAX_CHOICES)
+      .map((o) => ({ label: o.label, description: o.description })),
+  }));
+  // Anything the keys cannot express is left to Claude Code's own picker.
+  if (items.some((q) => !q.options.length || !q.question)) return null;
+  return items;
 }
 
 // Claude Code shows its own permission prompt while the hook is still running,
@@ -57,10 +59,6 @@ export class HookServer extends EventEmitter {
     this.queue = [];
     this.cursor = 0;
     this.question = null; // the question Claude is currently showing, if any
-    // How many Answer keys are on the deck. The MCP server reads this and
-    // withholds its tool entirely when there is nothing to press, so an unused
-    // feature costs nothing per request.
-    this.answerKeys = 0;
     this.sessions = new SessionRegistry();
     this.rules = new RuleBook();
     this.options = { holdSeconds: 110, onTimeout: 'ask', cwdFilter: '', token: '' };
@@ -159,8 +157,8 @@ export class HookServer extends EventEmitter {
     if (!this.question) return;
     if (sessionId && this.question.session && this.question.session !== sessionId) return;
     if (this.question.res) {
-      // An MCP question outlives the tool call that raised it only if we leave
-      // it hanging, so close it properly.
+      // The question is holding a permission response open; releasing it without
+      // a decision hands the ask back to Claude Code.
       this._closeQuestion({ cancelled: true, reason: 'the session moved on' });
       return;
     }
@@ -170,12 +168,16 @@ export class HookServer extends EventEmitter {
 
   // The documented reply shape: `decision` is an object, not a string. Its
   // fields are behavior, updatedInput, updatedPermissions, message and
-  // interrupt -- none of which returns a tool's result, which is why a question
-  // cannot be answered here and goes over MCP instead.
-  _decision(behavior, { message, updatedPermissions } = {}) {
+  // interrupt. updatedInput is the interesting one: a tool runs with the input
+  // it returns, which is how a key press answers a question rather than merely
+  // permitting it.
+  _decision(behavior, { message, updatedPermissions, updatedInput } = {}) {
     const decision = { behavior };
     if (behavior === 'deny' && message) decision.message = message;
     if (behavior === 'allow' && updatedPermissions) decision.updatedPermissions = updatedPermissions;
+    // updatedInput is how a question gets answered: the tool runs with the
+    // answer already in its input instead of asking for it.
+    if (behavior === 'allow' && updatedInput) decision.updatedInput = updatedInput;
     return { hookSpecificOutput: { hookEventName: 'PermissionRequest', decision } };
   }
 
@@ -223,7 +225,6 @@ export class HookServer extends EventEmitter {
       res.end(
         JSON.stringify({
           ok: true,
-          answerKeys: this.answerKeys,
           pending: this.queue.length,
           question: this.currentQuestion
             ? {
@@ -248,13 +249,6 @@ export class HookServer extends EventEmitter {
       return;
     }
 
-    // The MCP server posts questions here and the response is held until a key
-    // is pressed, so an MCP tool call can carry a real answer back to Claude --
-    // something the permission hook has no field for.
-    if (req.url === '/ask') {
-      this._readBody(req, res, (payload) => this._ask(payload, res));
-      return;
-    }
     if (this.options.token && req.headers['x-approver-token'] !== this.options.token) {
       res.writeHead(403, { 'Content-Type': 'application/json' });
       res.end('{}');
@@ -293,38 +287,44 @@ export class HookServer extends EventEmitter {
     });
   }
 
-  // A question from the MCP server. Unlike a permission request there is no
-  // sensible timeout default: Claude is simply waiting, and so is the user.
-  _ask(payload, res) {
-    // A call may carry several questions; the keys walk through them in order
-    // and the answers come back together, so a three-part decision costs one
-    // tool call rather than three round trips.
-    const raw = Array.isArray(payload.questions)
-      ? payload.questions
-      : [{ header: payload.header, question: payload.question, options: payload.options }];
-
-    const items = raw.slice(0, MAX_QUESTIONS).map((q) => ({
-      header: q.header || 'Question',
-      question: q.question || '',
-      options: (Array.isArray(q.options) ? q.options : [])
-        .slice(0, MAX_CHOICES)
-        .map((o) => ({ label: o.label, description: o.description })),
-    }));
-
-    const usable = items.filter((q) => q.question && q.options.length >= 2);
-    if (!usable.length || usable.length !== items.length) {
-      res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ cancelled: true, reason: 'malformed question' }));
-      return;
-    }
-
-    // Only one question can be on the keys at a time; a new one supersedes.
+  // A question arrives as a permission request, so answering it means answering
+  // that request -- and the hold applies: a question nobody presses must fall
+  // back to Claude Code's own picker rather than keep the session waiting on a
+  // key that is not going to be pressed.
+  _askOnKeys(hook, res, items) {
     if (this.question && this.question.res) {
       this._closeQuestion({ cancelled: true, reason: 'superseded by a newer question' });
     }
 
-    this.question = { items, index: 0, answers: [], res };
-    this.emit('log', `${items.length} question(s) on the keys: ${items[0].header}`);
+    const question = {
+      items,
+      index: 0,
+      answers: [],
+      res,
+      session: hook.session_id || '',
+      // The tool wants its own questions back alongside the answers.
+      original: (hook.tool_input && hook.tool_input.questions) || [],
+    };
+
+    question.timer = setTimeout(
+      () => this._closeQuestion({ cancelled: true, reason: 'nobody pressed a key' }),
+      this.options.holdSeconds * 1000
+    );
+
+    // Claude Code shows its own picker at the same time, exactly as it does for
+    // a permission. If it gets the answer first, the socket closes and the keys
+    // go dark instead of offering a choice that has already been made.
+    res.on('close', () => {
+      if (res.writableEnded) return;
+      if (this.question !== question) return;
+      clearTimeout(question.timer);
+      this.question = null;
+      this.emit('log', 'the question was answered in Claude Code, clearing the keys');
+      this.emit('change');
+    });
+
+    this.question = question;
+    this.emit('log', `question on the keys: ${items[0].header}`);
     this.emit('change');
   }
 
@@ -363,15 +363,28 @@ export class HookServer extends EventEmitter {
       payload = { ...payload, answers: question.answers };
     }
     this.question = null;
+    if (question) clearTimeout(question.timer);
     if (question && question.res && !question.res.writableEnded) {
+      const body = this._answeredDecision(question, payload);
       try {
         question.res.writeHead(200, { 'Content-Type': 'application/json' });
-        question.res.end(JSON.stringify(payload));
+        question.res.end(JSON.stringify(body));
       } catch (err) {
         this.emit('log', `could not answer the question: ${err.message}`);
       }
     }
     this.emit('change');
+  }
+
+  // The answers as AskUserQuestion wants them: its own questions back, plus a
+  // map from each question to the label that was pressed. A question nobody
+  // finished gets no decision at all, which hands it to Claude Code's picker
+  // with nothing lost.
+  _answeredDecision(question, payload) {
+    const answers = {};
+    for (const given of payload.answers || []) answers[given.question] = given.label;
+    if (Object.keys(answers).length !== question.items.length) return {};
+    return this._decision('allow', { updatedInput: { questions: question.original, answers } });
   }
 
   _ack(res) {
@@ -445,21 +458,14 @@ export class HookServer extends EventEmitter {
   }
 
   _permission(hook, res, session) {
-    // A question is not a yes/no decision. Let it through at once so Claude
-    // shows its picker, and remember the options so the Answer keys can drive
-    // that picker with a keystroke.
+    // A question is not a yes/no decision, but it is still answerable here: an
+    // allow may carry updatedInput, and AskUserQuestion reads its answers from
+    // exactly that. So the request is held like any other, the options go on
+    // the Answer keys, and a press answers Claude's question outright.
     const choices = parseChoices(hook);
     if (choices) {
-      this.question = {
-        items: [{ header: choices.header, question: choices.question, options: choices.options }],
-        index: 0,
-        answers: [],
-        res: null, // nothing to answer: Claude Code's own picker owns this one
-        session: hook.session_id || '',
-      };
-      this.emit('log', `question: ${choices.header}`);
-      this.emit('change');
-      this._ack(res);
+      this._askOnKeys(hook, res, choices);
+      if (session) session.state = State.INPUT;
       return;
     }
 

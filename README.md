@@ -149,14 +149,13 @@ are HTTP calls and local file reads.
 |---|---|---|
 | Approve / Deny / Always Allow | none | hook only, no model |
 | Claude Status, Session Board, Next | none | hooks plus your transcript on disk |
-| `ask_on_deck` definition | ~366 | every request, but only while Answer keys are on the deck |
-| `ask_on_deck` call | ~100–200 | per question actually asked |
+| Answer keys | none | hook only, no model |
 | Plan Usage poll | ~11 | per poll, every 5 minutes |
 
-The tool definition is the only ongoing cost, and it is charged per request rather than per use,
-so it is withheld unless there is a key to press — see below. Plan Usage costs almost nothing in
-tokens but does spend an API request every five minutes, which is worth knowing given what it
-measures. Pull the key off the deck to stop it.
+Nothing in the plugin adds a token to a request: permissions and answers both travel on hooks
+that were going to fire anyway. Plan Usage costs almost nothing in tokens but does spend an API
+request every five minutes, which is worth knowing given what it measures. Pull the key off the
+deck to stop it.
 
 ## Install
 
@@ -196,83 +195,44 @@ curl http://127.0.0.1:9247/hook
 
 ## Answering questions
 
-Approve and Deny cover yes/no, because that is what the permission hook is: a decision channel.
-A multiple-choice question is a different shape, and the hook protocol cannot carry one. Every
-field a hook can return was checked against the reference:
-
-| Hook | Field | What it does |
-|---|---|---|
-| `PermissionRequest` | `decision.behavior` | allow or deny |
-| | `decision.updatedInput` | rewrites the tool's **input** |
-| | `decision.message` | tells Claude why it was denied |
-| `PreToolUse` | `updatedInput` | rewrites input before the tool runs |
-| `PostToolUse` | `updatedToolOutput` | replaces the tool's **result** |
-
-`updatedToolOutput` looks like the way in, but the tool "has already run by the time the hook
-fires" -- for a question, that means you already answered it in the terminal. It can overwrite
-an answer, not supply one. And `PostToolUseFailure` only runs for "a tool that started
-executing", which a declined call never does.
-
-Declining `AskUserQuestion` does not answer it either; it arrives as "user dismissed", because a
-denied tool produced no result and "no answer from the user" is a state that tool already has a
-name for.
-
-So questions travel over MCP instead. `mcp/ask-deck.mjs` is a small stdio MCP server exposing one
-tool, `ask_on_deck`. An MCP tool call blocks until the server returns, so the plugin holds it open,
-puts each option on an Answer key, and returns the label you press as the tool result.
-There is one Answer action rather than four: place as many keys as the questions you want to
-answer and each takes the next option, or pin a key to a fixed option in its settings. No window
-focus, no synthetic keystrokes.
-
-A call may carry up to four questions. The keys show one at a time and repaint with the next the
-instant you answer -- the header reads `Database 1/3` -- and every answer comes back together. Three
-presses either way, but batching removes the model round trip that would otherwise sit between
-them. If something interrupts the sequence, the answers already given are returned rather than
-lost.
-
-Register it once:
-
-```bash
-claude mcp add --scope user --transport stdio ask-deck -- node <path to>/mcp/ask-deck.mjs
-```
-
-Then restart Claude Code. Without the `claude` CLI on PATH, add the same thing by hand to the
-`mcpServers` object in `~/.claude.json`:
+`AskUserQuestion` is a tool, so it arrives as a `PermissionRequest` like any other -- and the
+questions travel in its `tool_input`. The trick is that an allow decision may carry
+`updatedInput`, and that tool reads its answers from exactly there:
 
 ```json
-{
-  "mcpServers": {
-    "ask-deck": {
-      "type": "stdio",
-      "command": "node",
-      "args": ["C:/path/to/claude-approver-d200/mcp/ask-deck.mjs"]
-    }
-  }
-}
+{ "behavior": "allow",
+  "updatedInput": { "questions": [...], "answers": { "Ship which build?": "Release" } } }
 ```
 
-If the deck plugin is not running, the tool says so and Claude asks in the conversation instead --
-it degrades rather than breaking. `ASK_DECK_PORT` overrides the port if you changed it.
+So the plugin holds the request open, puts each option on an Answer key, and when you press one
+it allows the call with the answer already filled in. The tool never asks: it runs with your
+choice as its input and returns it to Claude. No MCP server, no synthetic keystrokes, no window
+focus -- and it works in every session on the machine, because it is the same hook that carries
+permissions.
 
-### It costs nothing when you are not using it
+There is one Answer action rather than four: place as many keys as the questions you want to
+answer and each takes the next option, or pin a key to a fixed option in its settings.
 
-A tool definition is re-sent on every request whether or not it is ever called, which for this one
-is a few hundred tokens a turn for the length of a session. So the server withholds it unless
-there is actually a key to press: it asks the plugin how many Answer keys are on the deck, and
-advertises no tools at all when the answer is none. Leave the server registered permanently --
-with the deck closed, or with no Answer keys placed, it costs nothing. Availability is re-checked
-every 30 seconds and the client is notified when it changes.
+A call may carry up to four questions. The keys show one at a time and repaint with the next the
+instant you answer -- the header reads `Database 1/3` -- and every answer is sent together when
+the last one is pressed. A question only half answered sends no decision at all, so Claude Code
+falls back to its own picker rather than receiving half a mind.
 
-Everything else in the plugin is free by construction: the hooks and the status keys involve no
-model at all. The one ongoing expense is Plan Usage, which spends an API request every five
-minutes -- ironically, to tell you how much quota you have spent.
+The same fallback covers everything else: nobody presses a key before the hold runs out, the
+question is superseded, the session moves on, or the plugin stops. In each case the request is
+released with no decision and Claude Code asks in the terminal exactly as it would without the
+deck.
 
-The question exists only on the keys -- the conversation shows a tool call and nothing else -- so
-the tool description tells Claude to write the question and its options out in its message before
-calling it. Without that you would be staring at a spinner wondering what your deck wants.
+### What the other fields cannot do
 
-Claude Code's own `AskUserQuestion` still passes straight through to the terminal, so Approve and
-Deny never light up for a question they cannot answer.
+`PostToolUse.updatedToolOutput` looks like another way in, but the tool "has already run by the
+time the hook fires" -- for a question, that means you already answered it. It can overwrite an
+answer, not supply one. `PostToolUseFailure` only runs for "a tool that started executing",
+which a declined call never does. And denying `AskUserQuestion` does not answer it either: it
+arrives as "user dismissed", because a denied tool produced no result.
+
+`updatedInput` is the only field that supplies an answer rather than replacing one, which is why
+it is the one the keys use.
 
 ## Plan usage
 
@@ -325,7 +285,6 @@ com.ulanzi.claudeapprover.ulanziPlugin/
   plugin/plugin-common-node/ vendored Ulanzi Node SDK
   property-inspector/        settings UI
   libs/                      vendored Ulanzi HTML SDK
-mcp/ask-deck.mjs             stdio MCP server: the ask_on_deck tool
 scripts/apply-bigkey.ps1     points the D200's wide slot at the Session Board
 hooks.example.json           the hook events to merge into settings.json
 ```

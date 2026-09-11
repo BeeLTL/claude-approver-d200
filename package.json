@@ -1,0 +1,11 @@
+{
+  "name": "claude-approver-d200",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Answer Claude Code permission prompts from an Ulanzi D200 deck.",
+  "license": "MIT",
+  "scripts": {
+    "test": "node --test \"test/*.test.mjs\"",
+    "install-plugin": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-plugin.ps1"
+  }
+}

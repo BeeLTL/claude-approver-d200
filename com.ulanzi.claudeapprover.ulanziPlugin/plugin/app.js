@@ -36,16 +36,12 @@ const DEFAULTS = {
   onTimeout: 'ask',
   cwdFilter: '',
   token: '',
-  // Arrows, not digits: the host presses physical keys, so "1" lands as & on
-  // AZERTY and as something else again on QWERTZ. Down/Enter are layout-proof.
 };
 
 const TICK_MS = 500; // drives both the countdown and the flash
 // Usage costs an API round trip, so it is polled slowly and shared by every
 // usage key rather than fetched per key.
 const USAGE_POLL_MS = 5 * 60 * 1000;
-const KEYSTROKE_LEAD_MS = 220; // settle time before the first synthetic key
-const KEYSTROKE_GAP_MS = 180; // gap between them, so the host drops none
 
 const $UD = new UlanziApi();
 const server = new HookServer();
@@ -97,22 +93,14 @@ function approvalView() {
   };
 }
 
-// Session keys claim slots in the order they were dropped onto the deck, so
-// however many you add is how many sessions you watch. A key with a project
-// name in its settings pins itself to that project instead.
-// Recounted whenever keys are added or removed, so the MCP server can decide
-// whether offering ask_on_deck is worth anyone's tokens.
-function countAnswerKeys() {
-  let n = 0;
-  for (const key of KEYS.values()) if (key.uuid === ACTION_ANSWER) n++;
-  server.answerKeys = n;
-}
-
 function answerIndexFor(context) {
   const index = assignAnswerIndexes(KEYS, ACTION_ANSWER, MAX_ANSWER_KEYS).get(context);
   return index === undefined ? -1 : index;
 }
 
+// Session keys claim slots in the order they were dropped onto the deck, so
+// however many you add is how many sessions you watch. A key with a project
+// name in its settings pins itself to that project instead.
 function sessionSlots() {
   const slots = new Map();
   let index = 0;
@@ -227,37 +215,6 @@ function repaint() {
   }
 }
 
-// Claude's question picker lives in the terminal, so the only honest way to
-// answer it is to press the keys a human would. Two dialects, because which one
-// the picker accepts is not documented: a bare option number, or arrow-downs
-// followed by Enter.
-function answerWithKeystrokes(index) {
-  // Always arrows. Sending the option number instead means the host presses the
-  // physical key where a digit sits on QWERTY, which on an AZERTY keyboard types
-  // & or e-acute into the prompt rather than choosing anything.
-  //
-  // Each hotkey is a websocket round trip that the host turns into a synthetic
-  // key press, and pressing them close together loses some -- measured on an
-  // AZERTY D200, 60ms gaps dropped one or both steps at random. These delays
-  // are deliberately generous: a quarter-second to answer is imperceptible,
-  // whereas landing on the wrong option is not.
-  // The first synthetic key is consumed bringing the window forward and never
-  // reaches the picker -- measured as a reliable one-row shortfall. So the
-  // first key sent is a lone Shift, which moves nothing if it does arrive.
-  let step = 0;
-  const walk = () => {
-    if (step < index) {
-      $UD.hotkey('Down');
-      step++;
-      setTimeout(walk, KEYSTROKE_GAP_MS);
-      return;
-    }
-    setTimeout(() => $UD.hotkey('Enter'), KEYSTROKE_GAP_MS);
-  };
-  $UD.hotkey('Shift');
-  setTimeout(walk, KEYSTROKE_LEAD_MS);
-}
-
 async function refreshUsage() {
   const result = await fetchUsage({ configDir: config.configDir });
   usage = result.ok
@@ -320,7 +277,6 @@ $UD.onAdd((jsn) => {
   if (!context) return;
   KEYS.set(context, { uuid: actionOf(context), settings: jsn.param || {} });
   if (actionOf(context) === ACTION_USAGE) startUsagePolling();
-  countAnswerKeys();
   applySettings(jsn.param);
   repaint();
 });
@@ -344,7 +300,6 @@ $UD.onClear((jsn) => {
     KEYS.delete(item.context);
     PAINTED.delete(item.context);
   }
-  countAnswerKeys();
 });
 
 $UD.onRun((jsn) => {
@@ -374,10 +329,8 @@ $UD.onRun((jsn) => {
     }
     const answered = server.answer(index);
     if (!answered) {
-      // A question with no MCP call behind it came from Claude Code's own
-      // AskUserQuestion, which the deck cannot answer -- fall back to typing.
-      answerWithKeystrokes(index);
-      $UD.toast(`Answering: ${option.label}`);
+      $UD.showAlert(context);
+      $UD.toast('That question is no longer waiting');
       return;
     }
     log(`answered "${answered.label}"${answered.more ? `, ${answered.remaining} to go` : ''}`);
