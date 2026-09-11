@@ -33,12 +33,22 @@ Keys sit dim and grey when nothing is pending, so the deck doubles as an at-a-gl
 "is Claude waiting on me" light. If the plugin is not running, Claude Code never gets an answer
 from the hook and falls back to its normal terminal prompt — nothing breaks.
 
-### Always Allow is ours, not Claude Code's
+### Always Allow
 
-A `PermissionRequest` hook may only answer `allow`, `deny` or `ask`; the protocol has no field
-for writing a permission rule back into Claude Code. So the rule is kept in the plugin: pressing
-Always records it against that `session_id`, and later matching requests are answered before the
-key ever lights up. It is dropped at `SessionEnd`, and your `settings.json` is never touched.
+Pressing Always returns an `updatedPermissions` entry alongside the allow, which asks Claude Code
+to add a session-scoped allow rule of its own:
+
+```json
+{ "type": "addRules", "behavior": "allow", "destination": "session",
+  "rules": [{ "toolName": "Bash", "ruleContent": "git push *" }] }
+```
+
+`destination: "session"` means in memory, discarded when the session ends -- your `settings.json`
+is never touched. Once Claude Code holds the rule, matching calls stop reaching this plugin at
+all, which is better than the plugin answering them quickly.
+
+The plugin also keeps its own copy of the rule, keyed to that `session_id` and dropped at
+`SessionEnd`, as a fallback for a host that ignores the field.
 
 Rules are derived from the request: `git push --force origin main` becomes `git push *`, not
 `git *` — so allowing a push never quietly allows `git reset --hard`. Commands with nothing
@@ -179,10 +189,25 @@ curl http://127.0.0.1:9247/hook
 ## Answering questions
 
 Approve and Deny cover yes/no, because that is what the permission hook is: a decision channel.
-A multiple-choice question is a different shape, and the hook protocol cannot carry one -- its
-reply has fields for allow, deny and a reason, but none whose value becomes a tool's *result*.
-Declining Claude Code's built-in `AskUserQuestion` does not answer it either; it arrives as
-"user dismissed".
+A multiple-choice question is a different shape, and the hook protocol cannot carry one. Every
+field a hook can return was checked against the reference:
+
+| Hook | Field | What it does |
+|---|---|---|
+| `PermissionRequest` | `decision.behavior` | allow or deny |
+| | `decision.updatedInput` | rewrites the tool's **input** |
+| | `decision.message` | tells Claude why it was denied |
+| `PreToolUse` | `updatedInput` | rewrites input before the tool runs |
+| `PostToolUse` | `updatedToolOutput` | replaces the tool's **result** |
+
+`updatedToolOutput` looks like the way in, but the tool "has already run by the time the hook
+fires" -- for a question, that means you already answered it in the terminal. It can overwrite
+an answer, not supply one. And `PostToolUseFailure` only runs for "a tool that started
+executing", which a declined call never does.
+
+Declining `AskUserQuestion` does not answer it either; it arrives as "user dismissed", because a
+denied tool produced no result and "no answer from the user" is a state that tool already has a
+name for.
 
 So questions travel over MCP instead. `mcp/ask-deck.mjs` is a small stdio MCP server exposing one
 tool, `ask_on_deck`. An MCP tool call blocks until the server returns, so the plugin holds it open,

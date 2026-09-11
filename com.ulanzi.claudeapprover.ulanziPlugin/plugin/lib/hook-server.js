@@ -3,7 +3,7 @@ import { EventEmitter } from 'events';
 import { randomUUID } from 'crypto';
 
 import { SessionRegistry, State } from './sessions.js';
-import { RuleBook, ruleFor } from './rules.js';
+import { RuleBook, ruleFor, permissionEntryFor } from './rules.js';
 
 const MAX_BODY = 1024 * 1024; // hook payloads carry tool_input; 1 MB is plenty
 const RETRY_MS = 5000;
@@ -135,7 +135,7 @@ export class HookServer extends EventEmitter {
       if (session) session.rules = this.rules.count(entry.session);
     }
 
-    this._answer(entry, decision, reason || (rule ? `Session rule: ${rule.label}` : undefined));
+    this._answer(entry, decision, reason || (rule ? `Session rule: ${rule.label}` : undefined), rule);
     return { entry, rule };
   }
 
@@ -153,15 +153,30 @@ export class HookServer extends EventEmitter {
     this.emit('change');
   }
 
-  _answer(entry, decision, reason) {
-    this._resolve(entry, {
-      hookSpecificOutput: {
-        hookEventName: 'PermissionRequest',
-        decision,
-        decisionReason:
-          reason || `${decision === 'allow' ? 'Approved' : 'Denied'} from Ulanzi deck`,
-      },
-    });
+  // The documented reply shape: `decision` is an object, not a string. Its
+  // fields are behavior, updatedInput, updatedPermissions, message and
+  // interrupt -- none of which returns a tool's result, which is why a question
+  // cannot be answered here and goes over MCP instead.
+  _decision(behavior, { message, updatedPermissions } = {}) {
+    const decision = { behavior };
+    if (behavior === 'deny' && message) decision.message = message;
+    if (behavior === 'allow' && updatedPermissions) decision.updatedPermissions = updatedPermissions;
+    return { hookSpecificOutput: { hookEventName: 'PermissionRequest', decision } };
+  }
+
+  _answer(entry, decision, reason, rule) {
+    // Always Allow hands Claude Code the rule rather than only remembering it
+    // here: as a session-scoped allow rule it owns the decision from then on,
+    // so matching calls never reach this plugin at all. The local RuleBook
+    // stays as a fallback for a host that ignores the field.
+    const updatedPermissions = rule ? [permissionEntryFor(rule)].filter(Boolean) : undefined;
+    this._resolve(
+      entry,
+      this._decision(decision, {
+        message: reason || 'Denied from the Ulanzi deck',
+        updatedPermissions,
+      })
+    );
     // Claude carries on the moment we answer, so the session is working again
     // unless something else is still queued for it.
     const stillQueued = this.queue.some((e) => e.session === entry.session);
@@ -448,15 +463,7 @@ export class HookServer extends EventEmitter {
     if (rule) {
       this.emit('log', `auto-allow ${entry.tool} via ${rule.label}`);
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(
-        JSON.stringify({
-          hookSpecificOutput: {
-            hookEventName: 'PermissionRequest',
-            decision: 'allow',
-            decisionReason: `Session rule: ${rule.label}`,
-          },
-        })
-      );
+      res.end(JSON.stringify(this._decision('allow')));
       this.emit('change');
       return;
     }
@@ -471,13 +478,9 @@ export class HookServer extends EventEmitter {
   _expire(entry) {
     const payload =
       this.options.onTimeout === 'deny'
-        ? {
-            hookSpecificOutput: {
-              hookEventName: 'PermissionRequest',
-              decision: 'deny',
-              decisionReason: 'No answer from the Ulanzi deck before the hook timed out',
-            },
-          }
+        ? this._decision('deny', {
+            message: 'No answer from the Ulanzi deck before the hook timed out',
+          })
         : {}; // no decision — Claude Code prompts in the terminal as usual
     this.emit('log', `expired ${entry.tool} (${this.options.onTimeout})`);
     const stillQueued = this.queue.filter((e) => e !== entry && e.session === entry.session);

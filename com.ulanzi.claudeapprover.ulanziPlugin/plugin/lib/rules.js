@@ -45,6 +45,25 @@ function matches(rule, entry) {
   return entry.tool === rule.value;
 }
 
+// The same rule as a permission entry Claude Code can adopt for the session.
+// `Bash(git push *)` is the documented rule syntax: everything before the first
+// star matches as written, so the subcommand is what limits it. Omitting
+// ruleContent matches the whole tool.
+export function permissionEntryFor(rule) {
+  if (!rule) return null;
+  const rules =
+    rule.kind === 'bash'
+      ? [{ toolName: 'Bash', ruleContent: `${rule.value} *` }]
+      : [{ toolName: rule.value }];
+  return {
+    type: 'addRules',
+    behavior: 'allow',
+    // In memory, dropped when the session ends. Nothing is written to settings.
+    destination: 'session',
+    rules,
+  };
+}
+
 export class RuleBook {
   constructor() {
     this.bySession = new Map(); // session_id -> rule[]
